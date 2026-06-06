@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
 
-CMD ["python", "bot.py"]
+CMD pip install -q --upgrade yt-dlp && python bot.py
