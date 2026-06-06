@@ -16,12 +16,18 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
+COOKIES_FILE = "/cookies/cookies.txt"
+_has_cookies = Path(COOKIES_FILE).exists()
+if _has_cookies:
+    log.info("Cookies file found at %s", COOKIES_FILE)
+
 YDL_OPTS = {
     "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
     "merge_output_format": "mp4",
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
+    **({"cookiefile": COOKIES_FILE} if _has_cookies else {}),
 }
 
 

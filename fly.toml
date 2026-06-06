@@ -2,6 +2,7 @@ app = "tb-dlp"
 primary_region = "ams"
 
 [build]
+  dockerfile = "Dockerfile"
 
 # No [http_service] — this is a background worker, not a web server
 
@@ -9,3 +10,7 @@ primary_region = "ams"
   memory = "256mb"
   cpu_kind = "shared"
   cpus = 1
+
+[[mounts]]
+  source = "cookies_vol"
+  destination = "/cookies"
