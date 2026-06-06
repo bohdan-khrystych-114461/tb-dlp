@@ -1,4 +1,7 @@
 .env
+cookies.txt
+temp_secret.env
+.claude/
 __pycache__/
 *.pyc
 *.pyo
