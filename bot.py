@@ -1,5 +1,8 @@
+import asyncio
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import logging
 from pathlib import Path
@@ -77,8 +80,19 @@ async def handle_url(update: Update, url: str) -> None:
             log.exception("Unexpected error for %s", url)
 
 
+async def daily_update(_) -> None:
+    while True:
+        await asyncio.sleep(24 * 60 * 60)
+        log.info("Running daily yt-dlp update...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--upgrade", "yt-dlp"])
+        log.info("yt-dlp updated, restarting bot process...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def main() -> None:
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(
+        lambda a: asyncio.ensure_future(daily_update(a))
+    ).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     log.info("Bot started, polling...")
     app.run_polling()
