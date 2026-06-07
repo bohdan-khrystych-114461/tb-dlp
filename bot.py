@@ -89,10 +89,12 @@ async def daily_update(_) -> None:
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
+async def on_startup(application) -> None:
+    asyncio.create_task(daily_update(application))
+
+
 def main() -> None:
-    app = ApplicationBuilder().token(BOT_TOKEN).post_init(
-        lambda a: asyncio.ensure_future(daily_update(a))
-    ).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     log.info("Bot started, polling...")
     app.run_polling()
