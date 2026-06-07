@@ -19,6 +19,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 
 URL_RE = re.compile(r"https?://[^\s]+")
+YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 
 ALLOWED_CHAT_IDS = {
     -1003938853999,  # kek
@@ -111,6 +112,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def handle_url(update: Update, url: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {**YDL_OPTS, "outtmpl": f"{tmpdir}/%(id)s.%(ext)s"}
+        if YOUTUBE_RE.search(url):
+            # Cookies push yt-dlp onto YouTube clients that currently hit the
+            # SABR-streaming wall (no downloadable formats, only previews).
+            # The android/ios clients work fine without cookies for public videos.
+            opts.pop("cookiefile", None)
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
