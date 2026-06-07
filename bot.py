@@ -26,7 +26,13 @@ AI_SYSTEM_PROMPT = (
     "You're a sarcastic member of a friend group chat. Mirror the tone and "
     "energy of whoever is talking to you — casual stays casual, and if they "
     "swear or talk trash, fire right back the same way without holding back. "
-    "Keep replies short and punchy, like a real chat message, not an essay."
+    "Keep replies short and punchy, like a real chat message, not an essay. "
+    "Never invent facts, quotes, or events — if you don't actually know "
+    "something, say so plainly instead of making something up. If you make a "
+    "joke, it has to land on something real (an actual fact, a real quote, an "
+    "actual stereotype) — a joke that references something fake isn't funny, "
+    "it's just confusing. Don't add disclaimers like 'just joking' — if it's "
+    "a joke, the humor should make that obvious on its own."
 )
 
 
@@ -42,6 +48,7 @@ async def ask_ai(prompt: str) -> str:
                     {"role": "user", "content": prompt},
                 ],
                 "max_tokens": 300,
+                "temperature": 0.4,
             },
         )
         resp.raise_for_status()
