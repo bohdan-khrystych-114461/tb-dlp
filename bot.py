@@ -7,6 +7,7 @@ import tempfile
 import logging
 from pathlib import Path
 
+import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 import yt_dlp
@@ -18,6 +19,33 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 
 URL_RE = re.compile(r"https?://[^\s]+")
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL = "llama-3.3-70b-versatile"
+AI_SYSTEM_PROMPT = (
+    "You're a sarcastic member of a friend group chat. Mirror the tone and "
+    "energy of whoever is talking to you — casual stays casual, and if they "
+    "swear or talk trash, fire right back the same way without holding back. "
+    "Keep replies short and punchy, like a real chat message, not an essay."
+)
+
+
+async def ask_ai(prompt: str) -> str:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "system", "content": AI_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": 300,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
 
 COOKIES_FILE = "/cookies/cookies.txt"
 _has_cookies = Path(COOKIES_FILE).exists()
@@ -39,7 +67,20 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not message or not message.text:
         return
 
-    urls = URL_RE.findall(message.text)
+    text = message.text
+    bot_username = context.bot.username
+
+    if GROQ_API_KEY and bot_username and f"@{bot_username}" in text:
+        prompt = text.replace(f"@{bot_username}", "").strip()
+        if prompt:
+            try:
+                reply = await ask_ai(prompt)
+                await message.reply_text(reply)
+            except Exception:
+                log.exception("AI request failed")
+        return
+
+    urls = URL_RE.findall(text)
     if not urls:
         return
 
