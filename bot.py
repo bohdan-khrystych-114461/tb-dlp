@@ -58,7 +58,16 @@ async def ask_ai(prompt: str, user_note: str = "") -> str:
             json={
                 "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 300},
+                "generationConfig": {
+                    "temperature": 0.4,
+                    "maxOutputTokens": 300,
+                    # This model spends tokens on invisible internal "thinking"
+                    # before answering — left enabled, it burns most of
+                    # maxOutputTokens on reasoning and truncates the visible
+                    # reply mid-word. Replies are short chat messages, not
+                    # problems that need step-by-step reasoning, so disable it.
+                    "thinkingConfig": {"thinkingBudget": 0},
+                },
             },
         )
         resp.raise_for_status()
