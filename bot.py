@@ -46,17 +46,19 @@ AI_SYSTEM_PROMPT = (
 )
 
 
-async def ask_ai(prompt: str) -> str:
+async def ask_ai(prompt: str, user_note: str = "") -> str:
+    messages = [{"role": "system", "content": AI_SYSTEM_PROMPT}]
+    if user_note:
+        messages.append({"role": "system", "content": user_note})
+    messages.append({"role": "user", "content": prompt})
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
             json={
                 "model": GROQ_MODEL,
-                "messages": [
-                    {"role": "system", "content": AI_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
+                "messages": messages,
                 "max_tokens": 300,
                 "temperature": 0.4,
             },
@@ -132,6 +134,52 @@ def _record_stat(url: str, *, cache_hit: bool) -> None:
     _save_stats()
 
 
+# Lightweight per-member profiles so AI replies can be tailored to whoever's
+# talking — built up automatically from their own messages (interests, tone,
+# recurring topics), no manual input needed.
+USER_PROFILES_FILE = "/cookies/user_profiles.json"
+PROFILE_UPDATE_THRESHOLD = 25  # messages collected before (re)summarizing someone
+
+try:
+    USER_PROFILES: dict[str, dict] = json.loads(Path(USER_PROFILES_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    USER_PROFILES = {}
+
+USER_MESSAGE_BUFFERS: dict[int, list[str]] = {}
+
+
+def _save_user_profiles() -> None:
+    try:
+        Path(USER_PROFILES_FILE).write_text(json.dumps(USER_PROFILES))
+    except OSError:
+        log.exception("Failed to persist user profiles")
+
+
+async def _update_profile(user_id: int, name: str) -> None:
+    messages = USER_MESSAGE_BUFFERS.get(user_id, [])
+    if len(messages) < PROFILE_UPDATE_THRESHOLD:
+        return
+    USER_MESSAGE_BUFFERS[user_id] = []
+
+    existing = USER_PROFILES.get(str(user_id), {}).get("notes", "")
+    prompt = (
+        f"Recent chat messages from {name}:\n" + "\n".join(messages) + "\n\n"
+        + (f"Existing notes about them: {existing}\n\n" if existing else "")
+        + "In one or two short, neutral sentences, note their interests and how "
+          "they talk (tone, humor, recurring topics) based ONLY on what's shown "
+          "above, so future replies to them can be tailored. No judgments, no "
+          "guessing beyond the evidence."
+    )
+    try:
+        notes = await ask_ai(prompt)
+    except Exception:
+        log.exception("Failed to update profile for %s", name)
+        return
+
+    USER_PROFILES[str(user_id)] = {"name": name, "notes": notes}
+    _save_user_profiles()
+
+
 COOKIES_FILE = "/cookies/cookies.txt"
 _has_cookies = Path(COOKIES_FILE).exists()
 if _has_cookies:
@@ -162,12 +210,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     text = message.text
     bot_username = context.bot.username
+    user = message.from_user
+
+    if GROQ_API_KEY and user and not user.is_bot:
+        USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
+        asyncio.create_task(_update_profile(user.id, user.full_name))
 
     if GROQ_API_KEY and bot_username and f"@{bot_username}" in text:
         prompt = text.replace(f"@{bot_username}", "").strip()
         if prompt:
             try:
-                reply = await ask_ai(prompt)
+                profile = USER_PROFILES.get(str(user.id)) if user else None
+                user_note = (
+                    f"A note about {user.full_name}, who's talking to you right now: {profile['notes']}"
+                    if profile else ""
+                )
+                reply = await ask_ai(prompt, user_note)
                 await message.reply_text(reply)
             except Exception:
                 log.exception("AI request failed")
