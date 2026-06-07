@@ -7,10 +7,11 @@ import sys
 import tempfile
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -67,6 +68,7 @@ async def ask_ai(prompt: str) -> str:
 # is instant and needs no re-download/re-upload. Cache URL -> file_id so the
 # same link posted again (or forwarded later) doesn't cost a fresh download.
 VIDEO_CACHE_FILE = "/cookies/video_cache.json"
+MAX_CACHE_ENTRIES = 500
 try:
     VIDEO_CACHE: dict[str, str] = json.loads(Path(VIDEO_CACHE_FILE).read_text())
 except (FileNotFoundError, json.JSONDecodeError):
@@ -78,6 +80,56 @@ def _save_video_cache() -> None:
         Path(VIDEO_CACHE_FILE).write_text(json.dumps(VIDEO_CACHE))
     except OSError:
         log.exception("Failed to persist video cache")
+
+
+def _remember_video(url: str, file_id: str) -> None:
+    # Dicts keep insertion order — drop the oldest entries first (FIFO) so the
+    # cache file doesn't grow without bound.
+    VIDEO_CACHE[url] = file_id
+    while len(VIDEO_CACHE) > MAX_CACHE_ENTRIES:
+        VIDEO_CACHE.pop(next(iter(VIDEO_CACHE)))
+    _save_video_cache()
+
+
+STATS_FILE = "/cookies/stats.json"
+try:
+    STATS: dict = json.loads(Path(STATS_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    STATS = {"total": 0, "cache_hits": 0, "by_platform": {}}
+
+
+def _save_stats() -> None:
+    try:
+        Path(STATS_FILE).write_text(json.dumps(STATS))
+    except OSError:
+        log.exception("Failed to persist stats")
+
+
+def _platform_from_url(url: str) -> str:
+    host = urlparse(url).netloc.lower().removeprefix("www.")
+    if "youtu" in host:
+        return "youtube"
+    if "instagram" in host:
+        return "instagram"
+    if "tiktok" in host:
+        return "tiktok"
+    if "twitter" in host or host == "x.com":
+        return "twitter/x"
+    if "facebook" in host or host == "fb.watch":
+        return "facebook"
+    if "reddit" in host:
+        return "reddit"
+    return host or "other"
+
+
+def _record_stat(url: str, *, cache_hit: bool) -> None:
+    STATS["total"] = STATS.get("total", 0) + 1
+    if cache_hit:
+        STATS["cache_hits"] = STATS.get("cache_hits", 0) + 1
+    by_platform = STATS.setdefault("by_platform", {})
+    platform = _platform_from_url(url)
+    by_platform[platform] = by_platform.get(platform, 0) + 1
+    _save_stats()
 
 
 COOKIES_FILE = "/cookies/cookies.txt"
@@ -144,6 +196,7 @@ async def _download_and_send(update: Update, url: str) -> None:
     if cached_file_id:
         try:
             await update.message.reply_video(video=cached_file_id, supports_streaming=True)
+            _record_stat(url, cache_hit=True)
             return
         except Exception:
             log.exception("Cached file_id for %s is no longer valid, re-downloading", url)
@@ -182,13 +235,35 @@ async def _download_and_send(update: Update, url: str) -> None:
                 msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
 
             if msg.video:
-                VIDEO_CACHE[url] = msg.video.file_id
-                _save_video_cache()
+                _remember_video(url, msg.video.file_id)
+            _record_stat(url, cache_hit=False)
 
         except yt_dlp.utils.DownloadError:
             pass  # URL wasn't a supported video — silently ignore
         except Exception:
             log.exception("Unexpected error for %s", url)
+
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or message.chat_id not in ALLOWED_CHAT_IDS:
+        return
+
+    total = STATS.get("total", 0)
+    cache_hits = STATS.get("cache_hits", 0)
+    by_platform = STATS.get("by_platform", {})
+
+    lines = [
+        f"📊 Videos sent: {total} (served from cache: {cache_hits})",
+        f"Cached links: {len(VIDEO_CACHE)}/{MAX_CACHE_ENTRIES}",
+    ]
+    if by_platform:
+        lines.append("")
+        lines.append("By platform:")
+        for platform, count in sorted(by_platform.items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {platform}: {count}")
+
+    await message.reply_text("\n".join(lines))
 
 
 async def daily_update(_) -> None:
@@ -207,6 +282,7 @@ async def on_startup(application) -> None:
 def main() -> None:
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(CommandHandler("stats", stats_command))
     log.info("Bot started, polling...")
     app.run_polling()
 
