@@ -20,6 +20,11 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
+ALLOWED_CHAT_IDS = {
+    -1003938853999,  # kek
+    -1001986640555,  # 2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні
+}
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 AI_SYSTEM_PROMPT = (
@@ -75,6 +80,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     log.info("Message from chat_id=%s chat_title=%r", message.chat_id, message.chat.title)
+
+    if message.chat_id not in ALLOWED_CHAT_IDS:
+        return
 
     text = message.text
     bot_username = context.bot.username
