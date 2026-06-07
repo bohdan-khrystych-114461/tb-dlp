@@ -74,6 +74,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not message or not message.text:
         return
 
+    log.info("Message from chat_id=%s chat_title=%r", message.chat_id, message.chat.title)
+
     text = message.text
     bot_username = context.bot.username
 
