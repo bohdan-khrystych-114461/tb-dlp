@@ -30,8 +30,8 @@ ALLOWED_CHAT_IDS = {
     -4268125559,     # Прікольчіки
 }
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-flash-latest"
 AI_SYSTEM_PROMPT = (
     "You're a sarcastic member of a friend group chat. Mirror the tone and "
     "energy of whoever is talking to you — casual stays casual, and if they "
@@ -47,24 +47,22 @@ AI_SYSTEM_PROMPT = (
 
 
 async def ask_ai(prompt: str, user_note: str = "") -> str:
-    messages = [{"role": "system", "content": AI_SYSTEM_PROMPT}]
+    system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
-        messages.append({"role": "system", "content": user_note})
-    messages.append({"role": "user", "content": prompt})
+        system_parts.append(user_note)
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+            params={"key": GEMINI_API_KEY},
             json={
-                "model": GROQ_MODEL,
-                "messages": messages,
-                "max_tokens": 300,
-                "temperature": 0.4,
+                "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 300},
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 # Telegram keeps uploaded videos on its own servers — resending by file_id
 # is instant and needs no re-download/re-upload. Cache URL -> file_id so the
@@ -212,11 +210,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     bot_username = context.bot.username
     user = message.from_user
 
-    if GROQ_API_KEY and user and not user.is_bot:
+    if GEMINI_API_KEY and user and not user.is_bot:
         USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
         asyncio.create_task(_update_profile(user.id, user.full_name))
 
-    if GROQ_API_KEY and bot_username and f"@{bot_username}" in text:
+    if GEMINI_API_KEY and bot_username and f"@{bot_username}" in text:
         prompt = text.replace(f"@{bot_username}", "").strip()
         if prompt:
             try:
