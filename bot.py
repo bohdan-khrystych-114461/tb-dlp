@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -62,6 +63,23 @@ async def ask_ai(prompt: str) -> str:
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
 
+# Telegram keeps uploaded videos on its own servers — resending by file_id
+# is instant and needs no re-download/re-upload. Cache URL -> file_id so the
+# same link posted again (or forwarded later) doesn't cost a fresh download.
+VIDEO_CACHE_FILE = "/cookies/video_cache.json"
+try:
+    VIDEO_CACHE: dict[str, str] = json.loads(Path(VIDEO_CACHE_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    VIDEO_CACHE = {}
+
+
+def _save_video_cache() -> None:
+    try:
+        Path(VIDEO_CACHE_FILE).write_text(json.dumps(VIDEO_CACHE))
+    except OSError:
+        log.exception("Failed to persist video cache")
+
+
 COOKIES_FILE = "/cookies/cookies.txt"
 _has_cookies = Path(COOKIES_FILE).exists()
 if _has_cookies:
@@ -72,7 +90,7 @@ YDL_OPTS = {
     # via ffmpeg spikes memory and OOM-killed the bot on a 256MB machine.
     "format": "best[height<=720][ext=mp4]/best[height<=720]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best",
     "merge_output_format": "mp4",
-    "quiet": False,  # TEMP: diagnosing OOM crash — need to see format/merge steps
+    "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
     "extractor_args": {"youtube": {"player_client": ["android", "web", "ios"]}},
@@ -122,6 +140,16 @@ async def handle_url(update: Update, url: str) -> None:
 
 
 async def _download_and_send(update: Update, url: str) -> None:
+    cached_file_id = VIDEO_CACHE.get(url)
+    if cached_file_id:
+        try:
+            await update.message.reply_video(video=cached_file_id, supports_streaming=True)
+            return
+        except Exception:
+            log.exception("Cached file_id for %s is no longer valid, re-downloading", url)
+            VIDEO_CACHE.pop(url, None)
+            _save_video_cache()
+
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {**YDL_OPTS, "outtmpl": f"{tmpdir}/%(id)s.%(ext)s"}
         if YOUTUBE_RE.search(url):
@@ -151,7 +179,11 @@ async def _download_and_send(update: Update, url: str) -> None:
 
             title = info.get("title", "")
             with open(filepath, "rb") as f:
-                await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+                msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+
+            if msg.video:
+                VIDEO_CACHE[url] = msg.video.file_id
+                _save_video_cache()
 
         except yt_dlp.utils.DownloadError:
             pass  # URL wasn't a supported video — silently ignore
