@@ -68,7 +68,9 @@ if _has_cookies:
     log.info("Cookies file found at %s", COOKIES_FILE)
 
 YDL_OPTS = {
-    "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
+    # Prefer pre-muxed formats first — merging separate video+audio streams
+    # via ffmpeg spikes memory and OOM-killed the bot on a 256MB machine.
+    "format": "best[height<=720][ext=mp4]/best[height<=720]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best",
     "merge_output_format": "mp4",
     "quiet": True,
     "no_warnings": True,
@@ -109,7 +111,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await handle_url(update, url)
 
 
+# Process one download at a time — running yt-dlp/ffmpeg in parallel on a
+# 256MB machine multiplies peak memory use and risks an OOM kill.
+DOWNLOAD_LOCK = asyncio.Semaphore(1)
+
+
 async def handle_url(update: Update, url: str) -> None:
+    async with DOWNLOAD_LOCK:
+        await _download_and_send(update, url)
+
+
+async def _download_and_send(update: Update, url: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         opts = {**YDL_OPTS, "outtmpl": f"{tmpdir}/%(id)s.%(ext)s"}
         if YOUTUBE_RE.search(url):
