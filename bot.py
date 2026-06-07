@@ -72,6 +72,7 @@ YDL_OPTS = {
     "quiet": True,
     "no_warnings": True,
     "noplaylist": True,
+    "extractor_args": {"youtube": {"player_client": ["android", "web", "ios"]}},
     **({"cookiefile": COOKIES_FILE} if _has_cookies else {}),
 }
 
