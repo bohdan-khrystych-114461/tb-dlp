@@ -72,7 +72,7 @@ YDL_OPTS = {
     # via ffmpeg spikes memory and OOM-killed the bot on a 256MB machine.
     "format": "best[height<=720][ext=mp4]/best[height<=720]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best",
     "merge_output_format": "mp4",
-    "quiet": True,
+    "quiet": False,  # TEMP: diagnosing OOM crash — need to see format/merge steps
     "no_warnings": True,
     "noplaylist": True,
     "extractor_args": {"youtube": {"player_client": ["android", "web", "ios"]}},
