@@ -30,6 +30,18 @@ ALLOWED_CHAT_IDS = {
     -4268125559,     # Прікольчіки
 }
 
+# Admin-only commands (/stats, /profile) are restricted to a private DM from
+# this Telegram user — keeps usage data and member profiles out of the groups.
+ADMIN_USER_ID = 247313805
+
+
+def _is_admin_dm(message) -> bool:
+    return (
+        message.chat.type == "private"
+        and message.from_user is not None
+        and message.from_user.id == ADMIN_USER_ID
+    )
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = "gemini-flash-latest"
 AI_SYSTEM_PROMPT = (
@@ -311,7 +323,7 @@ async def _download_and_send(update: Update, url: str) -> None:
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
-    if not message or message.chat_id not in ALLOWED_CHAT_IDS:
+    if not message or not _is_admin_dm(message):
         return
 
     total = STATS.get("total", 0)
@@ -321,12 +333,31 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     lines = [
         f"📊 Videos sent: {total} (served from cache: {cache_hits})",
         f"Cached links: {len(VIDEO_CACHE)}/{MAX_CACHE_ENTRIES}",
+        f"Member profiles: {len(USER_PROFILES)}",
     ]
     if by_platform:
         lines.append("")
         lines.append("By platform:")
         for platform, count in sorted(by_platform.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {platform}: {count}")
+
+    await message.reply_text("\n".join(lines))
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    if not USER_PROFILES:
+        await message.reply_text(
+            f"No profiles yet — need {PROFILE_UPDATE_THRESHOLD}+ tracked messages per person first."
+        )
+        return
+
+    lines = ["👥 What the bot has picked up on each member:"]
+    for data in USER_PROFILES.values():
+        lines.append(f"\n{data['name']}: {data['notes']}")
 
     await message.reply_text("\n".join(lines))
 
@@ -348,6 +379,7 @@ def main() -> None:
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("profile", profile_command))
     log.info("Bot started, polling...")
     app.run_polling()
 
