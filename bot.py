@@ -141,8 +141,8 @@ async def handle_url(update: Update, url: str) -> None:
             with open(filepath, "rb") as f:
                 await update.message.reply_video(video=f, caption=title, supports_streaming=True)
 
-        except yt_dlp.utils.DownloadError as e:
-            log.info("DownloadError for %s: %s", url, e)
+        except yt_dlp.utils.DownloadError:
+            pass  # URL wasn't a supported video — silently ignore
         except Exception:
             log.exception("Unexpected error for %s", url)
 
