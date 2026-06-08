@@ -52,7 +52,11 @@ def _is_admin_dm(message) -> bool:
     )
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GEMINI_MODEL = "gemini-flash-latest"
+
+# Try the newest/sharpest model first, then fall back to others with looser
+# free-tier daily quotas if it's 429ing — only once *all* of them are
+# exhausted do we give up and send a "перекур" reply (see RATE_LIMIT_*).
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 AI_SYSTEM_PROMPT = (
     "You're a sarcastic member of a friend group chat. Mirror the tone and "
     "energy of whoever is talking to you — casual stays casual, and if they "
@@ -82,28 +86,38 @@ async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = 
         system_parts.append(user_note)
 
     contents = [*(history or []), {"role": "user", "parts": [{"text": prompt}]}]
+    payload = {
+        "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 300,
+            # Some models spend tokens on invisible internal "thinking" before
+            # answering — left enabled, that burns most of maxOutputTokens on
+            # reasoning and truncates the visible reply mid-word. Replies are
+            # short chat messages, not problems needing step-by-step reasoning.
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
 
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-            params={"key": GEMINI_API_KEY},
-            json={
-                "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
-                "contents": contents,
-                "generationConfig": {
-                    "temperature": 0.4,
-                    "maxOutputTokens": 300,
-                    # This model spends tokens on invisible internal "thinking"
-                    # before answering — left enabled, it burns most of
-                    # maxOutputTokens on reasoning and truncates the visible
-                    # reply mid-word. Replies are short chat messages, not
-                    # problems that need step-by-step reasoning, so disable it.
-                    "thinkingConfig": {"thinkingBudget": 0},
-                },
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        last_error: httpx.HTTPStatusError | None = None
+        for model in GEMINI_MODELS:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                params={"key": GEMINI_API_KEY},
+                json=payload,
+            )
+            if resp.status_code == 429:
+                last_error = httpx.HTTPStatusError(
+                    f"429 from {model}", request=resp.request, response=resp
+                )
+                continue
+            resp.raise_for_status()
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        assert last_error is not None
+        raise last_error
 
 # Telegram keeps uploaded videos on its own servers — resending by file_id
 # is instant and needs no re-download/re-upload. Cache URL -> file_id so the
