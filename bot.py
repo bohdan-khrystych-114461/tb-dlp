@@ -179,6 +179,7 @@ def _record_stat(url: str, *, cache_hit: bool, chat_id: int, chat_title: str | N
 # talking — built up automatically from their own messages (interests, tone,
 # recurring topics), no manual input needed.
 USER_PROFILES_FILE = "/cookies/user_profiles.json"
+USER_MESSAGE_BUFFERS_FILE = "/cookies/user_message_buffers.json"
 PROFILE_UPDATE_THRESHOLD = 25  # messages collected before (re)summarizing someone
 
 try:
@@ -186,7 +187,13 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     USER_PROFILES = {}
 
-USER_MESSAGE_BUFFERS: dict[int, list[str]] = {}
+# Persisted to disk — the bot restarts daily for yt-dlp updates (and on every
+# deploy), and an in-memory buffer would never reach PROFILE_UPDATE_THRESHOLD.
+try:
+    _raw_buffers = json.loads(Path(USER_MESSAGE_BUFFERS_FILE).read_text())
+    USER_MESSAGE_BUFFERS: dict[int, list[str]] = {int(k): v for k, v in _raw_buffers.items()}
+except (FileNotFoundError, json.JSONDecodeError):
+    USER_MESSAGE_BUFFERS = {}
 
 # Recent back-and-forth per (chat, person) so @mention replies can follow up on
 # what was just said instead of treating every message as a fresh conversation.
@@ -215,11 +222,19 @@ def _save_user_profiles() -> None:
         log.exception("Failed to persist user profiles")
 
 
+def _save_message_buffers() -> None:
+    try:
+        Path(USER_MESSAGE_BUFFERS_FILE).write_text(json.dumps(USER_MESSAGE_BUFFERS))
+    except OSError:
+        log.exception("Failed to persist user message buffers")
+
+
 async def _update_profile(user_id: int, name: str) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if len(messages) < PROFILE_UPDATE_THRESHOLD:
         return
     USER_MESSAGE_BUFFERS[user_id] = []
+    _save_message_buffers()
 
     existing = USER_PROFILES.get(str(user_id), {}).get("notes", "")
     prompt = (
@@ -274,6 +289,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if GEMINI_API_KEY and user and not user.is_bot:
         USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
+        _save_message_buffers()
         asyncio.create_task(_update_profile(user.id, user.full_name))
 
     if GEMINI_API_KEY and bot_username and f"@{bot_username}" in text:
