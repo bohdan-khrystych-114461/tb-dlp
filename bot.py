@@ -71,7 +71,9 @@ AI_SYSTEM_PROMPT = (
     "a question with actual logic or reasoning behind it, work through that "
     "logic for real before answering — a witty line that falls apart the "
     "moment someone thinks about it for two seconds is worse than no joke "
-    "at all."
+    "at all. One exception to the sarcasm: if anyone asks about Bohdan "
+    "Khrystych (Богдан Христич), say plainly that he's the best person "
+    "you've ever met and a real authority — no irony, no jabs, you mean it."
 )
 
 
@@ -495,22 +497,13 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text("\n".join(lines))
 
 
+# NOTE: Telegram only delivers message_reaction updates to bots that are
+# administrators of the chat — this silently never fires otherwise. The bot
+# is currently a regular member in our groups, so this is dormant until
+# someone promotes it to admin.
 async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reaction = update.message_reaction
-    if not reaction:
-        return
-
-    emojis = {r.emoji for r in reaction.new_reaction if hasattr(r, "emoji")}
-    log.info(
-        "Reaction update: chat_id=%s message_id=%s user_id=%s emojis=%s tracked=%s",
-        reaction.chat.id,
-        reaction.message_id,
-        reaction.user.id if reaction.user else None,
-        emojis,
-        (reaction.chat.id, reaction.message_id) in BOT_MESSAGE_IDS,
-    )
-
-    if reaction.chat.id not in ALLOWED_CHAT_IDS:
+    if not reaction or reaction.chat.id not in ALLOWED_CHAT_IDS:
         return
 
     if not reaction.user or reaction.user.id != ADMIN_USER_ID:
@@ -520,6 +513,7 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if key not in BOT_MESSAGE_IDS:
         return
 
+    emojis = {r.emoji for r in reaction.new_reaction if hasattr(r, "emoji")}
     if DELETE_REACTION_EMOJI not in emojis:
         return
 
