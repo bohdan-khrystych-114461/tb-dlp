@@ -181,9 +181,9 @@ USER_MESSAGE_BUFFERS: dict[int, list[str]] = {}
 CONVERSATIONS: dict[str, list[dict]] = {}
 CONVERSATION_TURNS = 6  # how many user+model exchanges to keep per person
 
-# Anyone can react with 👎 to make the bot delete one of its OWN messages —
-# never other people's. We track which (chat, message_id) pairs are ours so a
-# reaction can't be used to remove someone else's message.
+# You (and only you) can react with 👎 on a bot message to delete it. We track
+# which (chat, message_id) pairs are the bot's own so this can never be used to
+# remove someone else's message.
 DELETE_REACTION_EMOJI = "👎"
 BOT_MESSAGE_IDS: set[tuple[int, int]] = set()
 MAX_TRACKED_MESSAGES = 1000
@@ -405,6 +405,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reaction = update.message_reaction
     if not reaction or reaction.chat.id not in ALLOWED_CHAT_IDS:
+        return
+
+    if not reaction.user or reaction.user.id != ADMIN_USER_ID:
         return
 
     key = (reaction.chat.id, reaction.message_id)
