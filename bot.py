@@ -11,7 +11,14 @@ from urllib.parse import urlparse
 
 import httpx
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    MessageReactionHandler,
+    filters,
+)
 import yt_dlp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -174,6 +181,19 @@ USER_MESSAGE_BUFFERS: dict[int, list[str]] = {}
 CONVERSATIONS: dict[str, list[dict]] = {}
 CONVERSATION_TURNS = 6  # how many user+model exchanges to keep per person
 
+# Anyone can react with 👎 to make the bot delete one of its OWN messages —
+# never other people's. We track which (chat, message_id) pairs are ours so a
+# reaction can't be used to remove someone else's message.
+DELETE_REACTION_EMOJI = "👎"
+BOT_MESSAGE_IDS: set[tuple[int, int]] = set()
+MAX_TRACKED_MESSAGES = 1000
+
+
+def _track_bot_message(chat_id: int, message_id: int) -> None:
+    BOT_MESSAGE_IDS.add((chat_id, message_id))
+    if len(BOT_MESSAGE_IDS) > MAX_TRACKED_MESSAGES:
+        BOT_MESSAGE_IDS.pop()
+
 
 def _save_user_profiles() -> None:
     try:
@@ -255,7 +275,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 )
                 history = CONVERSATIONS.get(convo_key, [])
                 reply = await ask_ai(prompt, user_note, history=history)
-                await message.reply_text(reply)
+                sent = await message.reply_text(reply)
+                _track_bot_message(sent.chat_id, sent.message_id)
 
                 history = history + [
                     {"role": "user", "parts": [{"text": prompt}]},
@@ -288,7 +309,8 @@ async def _download_and_send(update: Update, url: str) -> None:
     cached_file_id = VIDEO_CACHE.get(url)
     if cached_file_id:
         try:
-            await update.message.reply_video(video=cached_file_id, supports_streaming=True)
+            sent = await update.message.reply_video(video=cached_file_id, supports_streaming=True)
+            _track_bot_message(sent.chat_id, sent.message_id)
             _record_stat(url, cache_hit=True)
             return
         except Exception:
@@ -318,14 +340,16 @@ async def _download_and_send(update: Update, url: str) -> None:
 
             size = filepath.stat().st_size
             if size > MAX_BYTES:
-                await update.message.reply_text(
+                sent = await update.message.reply_text(
                     f"Video is too large ({size // 1024 // 1024} MB) — Telegram allows 50 MB max."
                 )
+                _track_bot_message(sent.chat_id, sent.message_id)
                 return
 
             title = info.get("title", "")
             with open(filepath, "rb") as f:
                 msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+            _track_bot_message(msg.chat_id, msg.message_id)
 
             if msg.video:
                 _remember_video(url, msg.video.file_id)
@@ -378,6 +402,26 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text("\n".join(lines))
 
 
+async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    reaction = update.message_reaction
+    if not reaction or reaction.chat.id not in ALLOWED_CHAT_IDS:
+        return
+
+    key = (reaction.chat.id, reaction.message_id)
+    if key not in BOT_MESSAGE_IDS:
+        return
+
+    emojis = {r.emoji for r in reaction.new_reaction if hasattr(r, "emoji")}
+    if DELETE_REACTION_EMOJI not in emojis:
+        return
+
+    try:
+        await context.bot.delete_message(chat_id=reaction.chat.id, message_id=reaction.message_id)
+        BOT_MESSAGE_IDS.discard(key)
+    except Exception:
+        log.exception("Failed to delete message %s in chat %s", reaction.message_id, reaction.chat.id)
+
+
 async def daily_update(_) -> None:
     while True:
         await asyncio.sleep(24 * 60 * 60)
@@ -396,8 +440,10 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(MessageReactionHandler(on_reaction))
     log.info("Bot started, polling...")
-    app.run_polling()
+    # message_reaction updates aren't included by default — request everything
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
