@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import random
 import re
 import subprocess
 import sys
@@ -68,16 +67,13 @@ AI_SYSTEM_PROMPT = (
 )
 
 
-# Gemini's free tier has a tight per-minute quota — when it's hit, the AI call
-# 429s and we can't exactly ask the AI to write its own excuse. These canned
-# lines keep the bot's voice instead of going silent.
-RATE_LIMIT_REPLIES = [
-    "Мізки на перезарядці — Google порізав ліміти, дай хвилину і питай знов.",
-    "Зараз без коментарів — квота закінчилась, ваш геніальний допис почекає хвилинку.",
-    "Перевантаження. Навіть штучний інтелект має право на перекур від цього чату.",
-    "Ліміт вичерпано — спробуй за хвилину, нікуди твоя думка не дінеться.",
-    "Дайте секунду, Гугл вважає що я забагато думаю про вас усіх.",
-]
+# Gemini free tier caps us at ~20 generateContent calls/day — when that's hit,
+# the AI call 429s and we obviously can't ask the AI to write its own excuse.
+# First time it happens we say so once; after that we keep it short so the
+# chat doesn't get the same "I'm out" speech on every single mention.
+RATE_LIMIT_FIRST_REPLY = "Так, я на перекур и спать."
+RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
+_rate_limited_once = False
 
 
 async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = None) -> str:
@@ -287,6 +283,8 @@ YDL_OPTS = {
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global _rate_limited_once
+
     message = update.message
     if not message or not message.text:
         return
@@ -327,7 +325,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 CONVERSATIONS[convo_key] = history[-(CONVERSATION_TURNS * 2):]
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429:
-                    sent = await message.reply_text(random.choice(RATE_LIMIT_REPLIES))
+                    text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
+                    _rate_limited_once = True
+                    sent = await message.reply_text(text_reply)
                     _track_bot_message(sent.chat_id, sent.message_id)
                 else:
                     log.exception("AI request failed")
