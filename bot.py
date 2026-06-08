@@ -258,7 +258,7 @@ def _save_message_buffers() -> None:
         log.exception("Failed to persist user message buffers")
 
 
-async def _update_profile(user_id: int, name: str) -> None:
+async def _update_profile(user_id: int, name: str, username: str | None) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if len(messages) < PROFILE_UPDATE_THRESHOLD:
         return
@@ -280,7 +280,7 @@ async def _update_profile(user_id: int, name: str) -> None:
         log.exception("Failed to update profile for %s", name)
         return
 
-    USER_PROFILES[str(user_id)] = {"name": name, "notes": notes}
+    USER_PROFILES[str(user_id)] = {"name": name, "username": username, "notes": notes}
     _save_user_profiles()
 
 
@@ -321,7 +321,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if GEMINI_API_KEY and user and not user.is_bot:
         USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
         _save_message_buffers()
-        asyncio.create_task(_update_profile(user.id, user.full_name))
+        asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
 
     if GEMINI_API_KEY and bot_username and f"@{bot_username}" in text:
         prompt = text.replace(f"@{bot_username}", "").strip()
@@ -492,7 +492,8 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     lines = ["👥 What the bot has picked up on each member:"]
     for data in USER_PROFILES.values():
-        lines.append(f"\n{data['name']}: {data['notes']}")
+        handle = f" (@{data['username']})" if data.get("username") else ""
+        lines.append(f"\n{data['name']}{handle}: {data['notes']}")
 
     await message.reply_text("\n".join(lines))
 
