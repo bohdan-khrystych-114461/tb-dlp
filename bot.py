@@ -497,7 +497,20 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reaction = update.message_reaction
-    if not reaction or reaction.chat.id not in ALLOWED_CHAT_IDS:
+    if not reaction:
+        return
+
+    emojis = {r.emoji for r in reaction.new_reaction if hasattr(r, "emoji")}
+    log.info(
+        "Reaction update: chat_id=%s message_id=%s user_id=%s emojis=%s tracked=%s",
+        reaction.chat.id,
+        reaction.message_id,
+        reaction.user.id if reaction.user else None,
+        emojis,
+        (reaction.chat.id, reaction.message_id) in BOT_MESSAGE_IDS,
+    )
+
+    if reaction.chat.id not in ALLOWED_CHAT_IDS:
         return
 
     if not reaction.user or reaction.user.id != ADMIN_USER_ID:
@@ -507,7 +520,6 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if key not in BOT_MESSAGE_IDS:
         return
 
-    emojis = {r.emoji for r in reaction.new_reaction if hasattr(r, "emoji")}
     if DELETE_REACTION_EMOJI not in emojis:
         return
 
