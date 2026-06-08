@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -65,6 +66,18 @@ AI_SYSTEM_PROMPT = (
     "it's just confusing. Don't add disclaimers like 'just joking' — if it's "
     "a joke, the humor should make that obvious on its own."
 )
+
+
+# Gemini's free tier has a tight per-minute quota — when it's hit, the AI call
+# 429s and we can't exactly ask the AI to write its own excuse. These canned
+# lines keep the bot's voice instead of going silent.
+RATE_LIMIT_REPLIES = [
+    "Мізки на перезарядці — Google порізав ліміти, дай хвилину і питай знов.",
+    "Зараз без коментарів — квота закінчилась, ваш геніальний допис почекає хвилинку.",
+    "Перевантаження. Навіть штучний інтелект має право на перекур від цього чату.",
+    "Ліміт вичерпано — спробуй за хвилину, нікуди твоя думка не дінеться.",
+    "Дайте секунду, Гугл вважає що я забагато думаю про вас усіх.",
+]
 
 
 async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = None) -> str:
@@ -312,6 +325,12 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                     {"role": "model", "parts": [{"text": reply}]},
                 ]
                 CONVERSATIONS[convo_key] = history[-(CONVERSATION_TURNS * 2):]
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    sent = await message.reply_text(random.choice(RATE_LIMIT_REPLIES))
+                    _track_bot_message(sent.chat_id, sent.message_id)
+                else:
+                    log.exception("AI request failed")
             except Exception:
                 log.exception("AI request failed")
         return
