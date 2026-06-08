@@ -114,9 +114,11 @@ async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = 
                 params={"key": GEMINI_API_KEY},
                 json=payload,
             )
-            if resp.status_code == 429:
+            # 429 (quota) and 5xx (transient outages) shouldn't sink the whole
+            # request — try the next model in the chain instead of giving up.
+            if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = httpx.HTTPStatusError(
-                    f"429 from {model}", request=resp.request, response=resp
+                    f"{resp.status_code} from {model}", request=resp.request, response=resp
                 )
                 continue
             resp.raise_for_status()
@@ -344,7 +346,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 ]
                 CONVERSATIONS[convo_key] = history[-(CONVERSATION_TURNS * 2):]
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429:
+                # Whether it's quota exhaustion (429) or Google's servers
+                # being temporarily down (5xx), the chat experiences it the
+                # same way — the bot going silent — so it gets the same canned
+                # "перекур" reply either way instead of just logging quietly.
+                if exc.response.status_code == 429 or exc.response.status_code >= 500:
                     text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
                     _rate_limited_once = True
                     sent = await message.reply_text(text_reply)
