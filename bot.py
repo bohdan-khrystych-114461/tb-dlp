@@ -35,6 +35,8 @@ ALLOWED_CHAT_IDS = {
     -1001986640555,  # 2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні
     -4774844208,     # Бібізянські пріколи
     -4268125559,     # Прікольчіки
+    -5170628911,     # Чат де соромно за свою англійську
+    -1003988355756,  # 🩳 шорти 🔞
 }
 
 # Admin-only commands (/stats, /profile) are restricted to a private DM from
@@ -152,13 +154,24 @@ def _platform_from_url(url: str) -> str:
     return host or "other"
 
 
-def _record_stat(url: str, *, cache_hit: bool) -> None:
+def _record_stat(url: str, *, cache_hit: bool, chat_id: int, chat_title: str | None) -> None:
+    platform = _platform_from_url(url)
+
     STATS["total"] = STATS.get("total", 0) + 1
     if cache_hit:
         STATS["cache_hits"] = STATS.get("cache_hits", 0) + 1
     by_platform = STATS.setdefault("by_platform", {})
-    platform = _platform_from_url(url)
     by_platform[platform] = by_platform.get(platform, 0) + 1
+
+    by_chat = STATS.setdefault("by_chat", {})
+    chat_stats = by_chat.setdefault(str(chat_id), {"title": chat_title, "total": 0, "cache_hits": 0, "by_platform": {}})
+    chat_stats["title"] = chat_title  # keep the latest title (groups get renamed)
+    chat_stats["total"] += 1
+    if cache_hit:
+        chat_stats["cache_hits"] += 1
+    chat_platform = chat_stats.setdefault("by_platform", {})
+    chat_platform[platform] = chat_platform.get(platform, 0) + 1
+
     _save_stats()
 
 
@@ -311,7 +324,7 @@ async def _download_and_send(update: Update, url: str) -> None:
         try:
             sent = await update.message.reply_video(video=cached_file_id, supports_streaming=True)
             _track_bot_message(sent.chat_id, sent.message_id)
-            _record_stat(url, cache_hit=True)
+            _record_stat(url, cache_hit=True, chat_id=sent.chat_id, chat_title=sent.chat.title)
             return
         except Exception:
             log.exception("Cached file_id for %s is no longer valid, re-downloading", url)
@@ -353,7 +366,7 @@ async def _download_and_send(update: Update, url: str) -> None:
 
             if msg.video:
                 _remember_video(url, msg.video.file_id)
-            _record_stat(url, cache_hit=False)
+            _record_stat(url, cache_hit=False, chat_id=msg.chat_id, chat_title=msg.chat.title)
 
         except yt_dlp.utils.DownloadError:
             pass  # URL wasn't a supported video — silently ignore
@@ -380,6 +393,33 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         lines.append("By platform:")
         for platform, count in sorted(by_platform.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {platform}: {count}")
+
+    await message.reply_text("\n".join(lines))
+
+
+async def chatstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    by_chat = STATS.get("by_chat", {})
+    if not by_chat:
+        await message.reply_text("No per-chat stats yet.")
+        return
+
+    lines = ["📊 Per-chat breakdown:"]
+    for chat_id, data in sorted(by_chat.items(), key=lambda kv: -kv[1]["total"]):
+        title = data.get("title") or chat_id
+        total = data.get("total", 0)
+        cache_hits = data.get("cache_hits", 0)
+        platforms = data.get("by_platform", {})
+        top = ", ".join(
+            f"{p}: {c}" for p, c in sorted(platforms.items(), key=lambda kv: -kv[1])
+        )
+        lines.append(f"\n{title} ({chat_id})")
+        lines.append(f"  Videos sent: {total} (from cache: {cache_hits})")
+        if top:
+            lines.append(f"  {top}")
 
     await message.reply_text("\n".join(lines))
 
@@ -442,6 +482,7 @@ def main() -> None:
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("chatstats", chatstats_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(MessageReactionHandler(on_reaction))
     log.info("Bot started, polling...")
