@@ -58,10 +58,12 @@ AI_SYSTEM_PROMPT = (
 )
 
 
-async def ask_ai(prompt: str, user_note: str = "") -> str:
+async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = None) -> str:
     system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
         system_parts.append(user_note)
+
+    contents = [*(history or []), {"role": "user", "parts": [{"text": prompt}]}]
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
@@ -69,7 +71,7 @@ async def ask_ai(prompt: str, user_note: str = "") -> str:
             params={"key": GEMINI_API_KEY},
             json={
                 "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "contents": contents,
                 "generationConfig": {
                     "temperature": 0.4,
                     "maxOutputTokens": 300,
@@ -166,6 +168,12 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 USER_MESSAGE_BUFFERS: dict[int, list[str]] = {}
 
+# Recent back-and-forth per (chat, person) so @mention replies can follow up on
+# what was just said instead of treating every message as a fresh conversation.
+# In-memory only — losing it on restart is fine, it's just short-term context.
+CONVERSATIONS: dict[str, list[dict]] = {}
+CONVERSATION_TURNS = 6  # how many user+model exchanges to keep per person
+
 
 def _save_user_profiles() -> None:
     try:
@@ -238,14 +246,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if GEMINI_API_KEY and bot_username and f"@{bot_username}" in text:
         prompt = text.replace(f"@{bot_username}", "").strip()
         if prompt:
+            convo_key = f"{message.chat_id}:{user.id}"
             try:
                 profile = USER_PROFILES.get(str(user.id)) if user else None
                 user_note = (
                     f"A note about {user.full_name}, who's talking to you right now: {profile['notes']}"
                     if profile else ""
                 )
-                reply = await ask_ai(prompt, user_note)
+                history = CONVERSATIONS.get(convo_key, [])
+                reply = await ask_ai(prompt, user_note, history=history)
                 await message.reply_text(reply)
+
+                history = history + [
+                    {"role": "user", "parts": [{"text": prompt}]},
+                    {"role": "model", "parts": [{"text": reply}]},
+                ]
+                CONVERSATIONS[convo_key] = history[-(CONVERSATION_TURNS * 2):]
             except Exception:
                 log.exception("AI request failed")
         return
