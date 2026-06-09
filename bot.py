@@ -95,7 +95,9 @@ IMAGEN_MODELS = [
 
 # Matches explicit image generation requests in any supported language
 GENERATE_RE = re.compile(
-    r"\b(намалюй|нарисуй|згенеруй|зроби\s+картинку|створи\s+картинку|generate\s+image|draw\s+me|draw\s+a|draw\s+an)\b",
+    r"\b(намалюй|нарисуй|згенеруй|генеруй|сгенерируй|генерируй|"
+    r"зроби\s+картинку|створи\s+картинку|создай\s+картинку|создай\s+изображение|"
+    r"generate\s+image|draw\s+me|draw\s+a|draw\s+an)\b",
     re.IGNORECASE,
 )
 AI_SYSTEM_PROMPT = (
