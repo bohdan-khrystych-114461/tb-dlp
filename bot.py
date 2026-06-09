@@ -534,7 +534,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         urls = URL_RE.findall(src)
         if urls:
             for url in urls:
-                await handle_url(update, url)
+                await handle_url(update, url, force=True)
             return
 
     if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
@@ -582,12 +582,14 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 DOWNLOAD_LOCK = asyncio.Semaphore(1)
 
 
-async def handle_url(update: Update, url: str) -> None:
+async def handle_url(update: Update, url: str, force: bool = False) -> None:
     async with DOWNLOAD_LOCK:
-        await _download_and_send(update, url)
+        await _download_and_send(update, url, force=force)
 
 
-async def _download_and_send(update: Update, url: str) -> None:
+async def _download_and_send(update: Update, url: str, force: bool = False) -> None:
+    if force:
+        VIDEO_CACHE.pop(url, None)
     cached_file_id = VIDEO_CACHE.get(url)
     if cached_file_id:
         try:
