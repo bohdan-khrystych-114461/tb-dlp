@@ -332,6 +332,14 @@ def _save_chat_names() -> None:
         log.exception("Failed to persist chat names")
 
 
+def _chat_name(chat_id: int) -> str:
+    return (
+        CHAT_NAMES.get(chat_id)
+        or STATS.get("by_chat", {}).get(str(chat_id), {}).get("title")
+        or str(chat_id)
+    )
+
+
 def _save_chat_history() -> None:
     try:
         Path(CHAT_HISTORY_FILE).write_text(json.dumps(CHAT_HISTORY))
@@ -969,7 +977,7 @@ async def _web_chats(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/login")
     rows = ""
     for chat_id, history in sorted(CHAT_HISTORY.items(), key=lambda kv: len(kv[1]), reverse=True):
-        name = _he(CHAT_NAMES.get(chat_id, str(chat_id)))
+        name = _he(_chat_name(chat_id))
         rows += (
             f"<tr><td>{name}<br><small class='text-muted'>{chat_id}</small></td>"
             f"<td>{len(history)}</td>"
@@ -996,7 +1004,7 @@ async def _web_chat_detail(request: aio_web.Request) -> aio_web.Response:
     except ValueError:
         return aio_web.HTTPFound("/admin/chats")
     history = CHAT_HISTORY.get(chat_id, [])
-    name = _he(CHAT_NAMES.get(chat_id, str(chat_id)))
+    name = _he(_chat_name(chat_id))
     rows = "".join(
         f"<tr class='{'table-info' if m['is_bot'] else ''}'>"
         f"<td class='text-nowrap'><small>{'🤖 Bot' if m['is_bot'] else _he(m['author'])}</small></td>"
@@ -1013,7 +1021,7 @@ async def _web_chat_detail(request: aio_web.Request) -> aio_web.Response:
     <tbody>{rows}</tbody>
   </table>
 </div>"""
-    return aio_web.Response(text=_page(f"Chat — {CHAT_NAMES.get(chat_id, str(chat_id))}", body, active="chats"), content_type="text/html")
+    return aio_web.Response(text=_page(f"Chat — {_chat_name(chat_id)}", body, active="chats"), content_type="text/html")
 
 
 async def _web_whitelist(request: aio_web.Request) -> aio_web.Response:
@@ -1023,7 +1031,7 @@ async def _web_whitelist(request: aio_web.Request) -> aio_web.Response:
     alert = f"<div class='alert alert-success py-2'>{_he(msg)}</div>" if msg else ""
     rows = ""
     for chat_id in sorted(ALLOWED_CHAT_IDS):
-        name = _he(CHAT_NAMES.get(chat_id, "—"))
+        name = _he(_chat_name(chat_id))
         rows += (
             f"<tr><td>{name}</td><td><code>{chat_id}</code></td><td>"
             f"<form method='post' action='/admin/whitelist/remove' style='display:inline'>"
@@ -1081,7 +1089,7 @@ async def _web_whitelist_add(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/admin/whitelist?msg=Invalid+chat+ID")
     ALLOWED_CHAT_IDS.add(chat_id)
     _save_whitelist()
-    name = CHAT_NAMES.get(chat_id, str(chat_id))
+    name = _chat_name(chat_id)
     return aio_web.HTTPFound(f"/admin/whitelist?msg={_urlquote(f'Added: {name}')}")
 
 
@@ -1095,7 +1103,7 @@ async def _web_whitelist_remove(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/admin/whitelist")
     ALLOWED_CHAT_IDS.discard(chat_id)
     _save_whitelist()
-    name = CHAT_NAMES.get(chat_id, str(chat_id))
+    name = _chat_name(chat_id)
     return aio_web.HTTPFound(f"/admin/whitelist?msg={_urlquote(f'Removed: {name}')}")
 
 
