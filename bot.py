@@ -351,7 +351,7 @@ async def _reply_with_ai(
     )
     chat_context = _build_chat_context(message.chat_id)
     if uninvited:
-        note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in."
+        note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
 
     try:
@@ -423,6 +423,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and not user.is_bot
         and len(text) >= 10
         and not text.startswith("/")
+        and not URL_RE.search(text)  # don't interrupt URL downloads
     ):
         last = _chat_last_unprompted.get(message.chat_id, 0)
         if time.time() - last >= UNPROMPTED_COOLDOWN and random.random() < UNPROMPTED_CHANCE:
