@@ -597,12 +597,31 @@ async def _download_and_send(update: Update, url: str) -> None:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError:
-            return  # URL wasn't downloadable — silently ignore
+            if not INSTAGRAM_RE.search(url):
+                return
+            # yt-dlp intentionally doesn't support Instagram photo posts —
+            # fall back to gallery-dl which handles them properly.
+            info = {}
+            try:
+                cookie_args = ["--cookies", COOKIES_FILE] if _has_cookies else []
+                result = subprocess.run(
+                    ["gallery-dl", *cookie_args, "--dest", tmpdir, url],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode != 0:
+                    log.error("gallery-dl failed for %s: %s", url, result.stderr)
+                    return
+            except Exception:
+                log.exception("gallery-dl failed for %s", url)
+                return
         except Exception:
             log.exception("Unexpected error for %s", url)
             return
 
         all_files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
+        if not all_files:
+            # gallery-dl nests files in subdirs — walk the tree
+            all_files = [f for f in Path(tmpdir).rglob("*") if f.is_file()]
         if not all_files:
             return
 
