@@ -87,7 +87,11 @@ GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # 20 RPD
     "gemini-3-flash-preview", # 20 RPD
 ]
-IMAGEN_MODELS = ["imagen-4.0-fast-generate-001", "imagen-4.0-generate-001"]
+IMAGEN_MODELS = [
+    "imagen-4.0-fast-generate-001",  # 25 RPD
+    "imagen-4.0-generate-001",       # 25 RPD
+    "imagen-4.0-ultra-generate-001", # 25 RPD
+]
 
 # Matches explicit image generation requests in any supported language
 GENERATE_RE = re.compile(
