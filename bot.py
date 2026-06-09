@@ -15,7 +15,7 @@ from urllib.parse import urlparse, quote as _urlquote
 from aiohttp import web as aio_web
 
 import httpx
-from telegram import Update
+from telegram import Update, InputMediaPhoto
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -34,6 +34,8 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 
 URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
+INSTAGRAM_RE = re.compile(r"instagram\.com", re.IGNORECASE)
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 _DEFAULT_CHAT_IDS: set[int] = set(
     json.loads(os.environ["DEFAULT_CHAT_IDS"])
@@ -585,19 +587,30 @@ async def _download_and_send(update: Update, url: str) -> None:
             # SABR-streaming wall (no downloadable formats, only previews).
             # The android/ios clients work fine without cookies for public videos.
             opts.pop("cookiefile", None)
+        if INSTAGRAM_RE.search(url):
+            # Allow carousels (multiple photos/videos in one post) and use a
+            # format selector that works for both video and image posts.
+            opts["noplaylist"] = False
+            opts["format"] = "best[height<=720]/best"
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                filepath = Path(ydl.prepare_filename(info))
+        except yt_dlp.utils.DownloadError:
+            return  # URL wasn't downloadable — silently ignore
+        except Exception:
+            log.exception("Unexpected error for %s", url)
+            return
 
-            if not filepath.exists():
-                # yt-dlp may have merged into a different name — grab whatever is there
-                files = list(Path(tmpdir).iterdir())
-                if not files:
-                    return
-                filepath = files[0]
+        all_files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
+        if not all_files:
+            return
 
+        images = sorted(f for f in all_files if f.suffix.lower() in IMAGE_EXTS)
+        videos = sorted(f for f in all_files if f.suffix.lower() not in IMAGE_EXTS)
+
+        if videos:
+            filepath = videos[0]
             size = filepath.stat().st_size
             if size > MAX_BYTES:
                 sent = await update.message.reply_text(
@@ -605,20 +618,25 @@ async def _download_and_send(update: Update, url: str) -> None:
                 )
                 _track_bot_message(sent.chat_id, sent.message_id)
                 return
-
-            title = info.get("title", "")
+            title = info.get("title", "") if not isinstance(info.get("entries"), list) else ""
             with open(filepath, "rb") as f:
                 msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
             _track_bot_message(msg.chat_id, msg.message_id)
-
             if msg.video:
                 _remember_video(url, msg.video.file_id)
             _record_stat(url, cache_hit=False, chat_id=msg.chat_id, chat_title=msg.chat.title)
 
-        except yt_dlp.utils.DownloadError:
-            pass  # URL wasn't a supported video — silently ignore
-        except Exception:
-            log.exception("Unexpected error for %s", url)
+        elif images:
+            if len(images) == 1:
+                with open(images[0], "rb") as f:
+                    msg = await update.message.reply_photo(photo=f)
+                _track_bot_message(msg.chat_id, msg.message_id)
+            else:
+                media = [InputMediaPhoto(f.read_bytes()) for f in images[:10]]
+                msgs = await update.message.reply_media_group(media=media)
+                for msg in msgs:
+                    _track_bot_message(msg.chat_id, msg.message_id)
+            _record_stat(url, cache_hit=False, chat_id=update.message.chat_id, chat_title=update.message.chat.title)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
