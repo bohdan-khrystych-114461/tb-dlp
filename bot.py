@@ -72,7 +72,7 @@ for _cid, _cname in _DEFAULT_CHAT_NAMES.items():
 
 # Admin-only commands (/stats, /profile) are restricted to a private DM from
 # this Telegram user — keeps usage data and member profiles out of the groups.
-ADMIN_USER_ID = 247313805
+ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", "247313805"))
 
 
 def _is_admin_dm(message) -> bool:
@@ -747,6 +747,9 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 _SESSION_COOKIE = "tbd_admin"
 _WEB_PORT = 8080
+_login_failures: dict[str, list[float]] = {}  # ip -> list of failure timestamps
+_LOGIN_MAX_ATTEMPTS = 10
+_LOGIN_LOCKOUT_SECONDS = 3600
 
 
 def _page(title: str, body: str, active: str = "") -> str:
@@ -810,11 +813,23 @@ async def _web_login_get(request: aio_web.Request) -> aio_web.Response:
 
 
 async def _web_login_post(request: aio_web.Request) -> aio_web.Response:
+    ip = request.remote or "unknown"
+    now = time.time()
+    failures = [t for t in _login_failures.get(ip, []) if now - t < _LOGIN_LOCKOUT_SECONDS]
+    if len(failures) >= _LOGIN_MAX_ATTEMPTS:
+        return aio_web.Response(
+            text=_page("Login", "<div class='alert alert-danger'>Too many failed attempts. Try again in an hour.</div>"),
+            content_type="text/html",
+            status=429,
+        )
     data = await request.post()
     if data.get("token") == ADMIN_TOKEN:
+        _login_failures.pop(ip, None)
         resp = aio_web.HTTPFound("/admin")
-        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, max_age=7 * 24 * 3600)
+        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, secure=True, samesite="Strict", max_age=7 * 24 * 3600)
         return resp
+    failures.append(now)
+    _login_failures[ip] = failures
     return aio_web.HTTPFound("/login?error")
 
 
@@ -966,7 +981,7 @@ async def _token_middleware(request: aio_web.Request, handler):
             {k: v for k, v in request.rel_url.query.items() if k != "token"}
         ))
         resp = aio_web.HTTPFound(clean or request.path)
-        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, max_age=7 * 24 * 3600)
+        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, secure=True, samesite="Strict", max_age=7 * 24 * 3600)
         return resp
     return await handler(request)
 
