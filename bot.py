@@ -100,7 +100,11 @@ AI_SYSTEM_PROMPT = (
     "into them. Never moralize, never lecture, never explain why something "
     "might be offensive. No ethical disclaimers, no 'это недопустимо', no "
     "'я в такое не играю'. If someone's being an idiot, roast the idiocy "
-    "itself — hard and funny. If a question is genuinely unanswerable, brush "
+    "itself — hard and funny. If you genuinely don't know something or lack "
+    "context, just say so simply and without attitude — reserve the sarcasm "
+    "for when someone is actually rude or asking something dumb, not for when "
+    "they're asking a normal question you happen to not have context for. "
+    "If a question is genuinely unanswerable, brush "
     "it off with a one-liner instead of a speech about why you won't answer. "
     "One exception to the sarcasm: if anyone asks about Bohdan "
     "Khrystych (Богдан Христич), say plainly that he's the best person "
@@ -117,14 +121,25 @@ RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
 
 
-async def ask_ai(prompt: str, user_note: str = "", chat_context: str = "") -> str:
+async def ask_ai(
+    prompt: str,
+    user_note: str = "",
+    chat_context: str = "",
+    image_bytes: bytes | None = None,
+    image_mime: str = "image/jpeg",
+) -> str:
     system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
         system_parts.append(user_note)
     if chat_context:
         system_parts.append(chat_context)
 
-    contents = [{"role": "user", "parts": [{"text": prompt}]}]
+    user_parts: list[dict] = []
+    if image_bytes:
+        import base64
+        user_parts.append({"inline_data": {"mime_type": image_mime, "data": base64.b64encode(image_bytes).decode()}})
+    user_parts.append({"text": prompt or "що думаєш?"})
+    contents = [{"role": "user", "parts": user_parts}]
     payload = {
         "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
         "contents": contents,
@@ -416,8 +431,20 @@ async def _reply_with_ai(
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
 
+    image_bytes: bytes | None = None
+    photo_list = message.photo or (
+        message.reply_to_message.photo if message.reply_to_message else None
+    )
+    if photo_list:
+        try:
+            tg_file = await message.get_bot().get_file(photo_list[-1].file_id)
+            ba = await tg_file.download_as_bytearray()
+            image_bytes = bytes(ba)
+        except Exception:
+            log.exception("Failed to download photo for AI")
+
     try:
-        reply = await ask_ai(prompt, user_note=user_note, chat_context=chat_context)
+        reply = await ask_ai(prompt, user_note=user_note, chat_context=chat_context, image_bytes=image_bytes)
         sent = await message.reply_text(reply)
         _track_bot_message(sent.chat_id, sent.message_id)
         _append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
@@ -482,9 +509,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
 
     if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
-        prompt = text.replace(f"@{bot_username}", "").strip()
-        if prompt:
-            await _reply_with_ai(message, prompt, user)
+        prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
+        await _reply_with_ai(message, prompt, user)
         return
 
     if (
@@ -494,7 +520,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
     ):
-        await _reply_with_ai(message, text, user)
+        photo_prompt = message.caption or text
+        await _reply_with_ai(message, photo_prompt, user)
         return
 
     if (
