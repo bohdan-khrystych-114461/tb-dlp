@@ -433,6 +433,17 @@ async def _update_profile(user_id: int, name: str, username: str | None, *, forc
     _save_user_profiles()
 
 
+async def _to_english_prompt(text: str) -> str:
+    """Translate an image prompt to English for Imagen (works best with English)."""
+    try:
+        result = await ask_ai(
+            f"Translate this image generation prompt to English. Return ONLY the translated prompt, nothing else: {text}"
+        )
+        return result.strip()
+    except Exception:
+        return text
+
+
 async def generate_image(prompt: str) -> bytes | None:
     import base64
     async with httpx.AsyncClient(timeout=60) as client:
@@ -444,7 +455,11 @@ async def generate_image(prompt: str) -> bytes | None:
             )
             if resp.status_code == 429 or resp.status_code >= 500:
                 continue
-            resp.raise_for_status()
+            if not resp.is_success:
+                log.error("Imagen %s returned %s: %s", model, resp.status_code, resp.text)
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} from {model}", request=resp.request, response=resp
+                )
             predictions = resp.json().get("predictions", [])
             if predictions:
                 return base64.b64decode(predictions[0]["bytesBase64Encoded"])
@@ -456,7 +471,9 @@ async def _send_generated_image(message, prompt: str) -> None:
         await message.reply_text("Вкажи що генерувати.")
         return
     try:
-        img_bytes = await generate_image(prompt)
+        en_prompt = await _to_english_prompt(prompt)
+        log.info("Generating image, prompt=%r → en=%r", prompt, en_prompt)
+        img_bytes = await generate_image(en_prompt)
         if img_bytes:
             await message.reply_photo(img_bytes)
         else:
