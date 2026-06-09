@@ -80,7 +80,13 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # Try the newest/sharpest model first, then fall back to others with looser
 # free-tier daily quotas if it's 429ing — only once *all* of them are
 # exhausted do we give up and send a "перекур" reply (see RATE_LIMIT_*).
-GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+GEMINI_MODELS = [
+    "gemini-flash-latest",    # 3.5 Flash — best quality, 20 RPD
+    "gemini-3.1-flash-lite",  # 500 RPD — main overflow bucket
+    "gemini-2.5-flash",       # 20 RPD
+    "gemini-2.5-flash-lite",  # 20 RPD
+    "gemini-3-flash-preview", # 20 RPD
+]
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
     "Your default tone is genuine and relaxed. When someone shares something "
