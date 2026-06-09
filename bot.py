@@ -35,23 +35,16 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 
-_DEFAULT_CHAT_IDS = {
-    -1003938853999,  # kek
-    -1001986640555,  # 2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні
-    -4774844208,     # Бібізянські пріколи
-    -4268125559,     # Прікольчіки
-    -5170628911,     # Чат де соромно за свою англійську
-    -1003988355756,  # 🩳 шорти 🔞
-}
-
-_DEFAULT_CHAT_NAMES = {
-    -1003938853999: "kek",
-    -1001986640555: "2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні",
-    -4774844208:    "Бібізянські пріколи",
-    -4268125559:    "Прікольчіки",
-    -5170628911:    "Чат де соромно за свою англійську",
-    -1003988355756: "🩳 шорти 🔞",
-}
+_DEFAULT_CHAT_IDS: set[int] = set(
+    json.loads(os.environ["DEFAULT_CHAT_IDS"])
+    if "DEFAULT_CHAT_IDS" in os.environ
+    else []
+)
+_DEFAULT_CHAT_NAMES: dict[int, str] = (
+    {int(k): v for k, v in json.loads(os.environ["DEFAULT_CHAT_NAMES"]).items()}
+    if "DEFAULT_CHAT_NAMES" in os.environ
+    else {}
+)
 
 WHITELIST_FILE = "/cookies/whitelist.json"
 try:
