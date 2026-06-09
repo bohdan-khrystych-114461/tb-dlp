@@ -144,6 +144,7 @@ async def ask_ai(
     chat_context: str = "",
     image_bytes: bytes | None = None,
     image_mime: str = "image/jpeg",
+    models: list[str] | None = None,
 ) -> str:
     system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
@@ -173,7 +174,7 @@ async def ask_ai(
 
     async with httpx.AsyncClient(timeout=30) as client:
         last_error: httpx.HTTPStatusError | None = None
-        for model in GEMINI_MODELS:
+        for model in (models or GEMINI_MODELS):
             resp = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 params={"key": GEMINI_API_KEY},
@@ -437,7 +438,8 @@ async def _to_english_prompt(text: str) -> str:
     """Translate an image prompt to English for Imagen (works best with English)."""
     try:
         result = await ask_ai(
-            f"Translate this image generation prompt to English. Return ONLY the translated prompt, nothing else: {text}"
+            f"Translate this image generation prompt to English. Return ONLY the translated prompt, nothing else: {text}",
+            models=["gemini-3.1-flash-lite"],
         )
         return result.strip()
     except Exception:
