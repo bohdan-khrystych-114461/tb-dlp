@@ -267,9 +267,13 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 # Small chance the bot jumps in without being @mentioned — makes it feel like
 # a real group member rather than a tool that only responds on command.
-UNPROMPTED_CHANCE = 0.08  # 8% per eligible message
-UNPROMPTED_COOLDOWN = 120  # seconds between unprompted replies per chat
+UNPROMPTED_CHANCE = 0.08        # base 8% per eligible message
+UNPROMPTED_CHANCE_HOT = 0.14    # bumped to 14% when chat is actively flowing
+UNPROMPTED_COOLDOWN = 120       # min seconds between unprompted replies per chat
+CHAT_COLD_THRESHOLD = 30 * 60   # >30 min silence = cold, skip unprompted
+CHAT_HOT_THRESHOLD = 3 * 60     # <3 min since last message = hot chat
 _chat_last_unprompted: dict[int, float] = {}
+_chat_last_activity: dict[int, float] = {}  # time of previous message per chat
 
 # You (and only you) can react with 👎 on a bot message to delete it. We track
 # which (chat, message_id) pairs are the bot's own so this can never be used to
@@ -453,6 +457,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     bot_username = context.bot.username
     user = message.from_user
 
+    now = time.time()
+    prev_activity = _chat_last_activity.get(message.chat_id, 0)
+    _chat_last_activity[message.chat_id] = now
+
     if user and not user.is_bot:
         _append_to_chat_history(message.chat_id, user.full_name, text, is_bot=False)
         if GEMINI_API_KEY:
@@ -482,10 +490,13 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and len(text) >= 10
         and not text.startswith("/")
         and not URL_RE.search(text)  # don't interrupt URL downloads
+        and now - prev_activity < CHAT_COLD_THRESHOLD  # skip if chat was silent for 30+ min
     ):
         last = _chat_last_unprompted.get(message.chat_id, 0)
-        if time.time() - last >= UNPROMPTED_COOLDOWN and random.random() < UNPROMPTED_CHANCE:
-            _chat_last_unprompted[message.chat_id] = time.time()
+        chat_is_hot = now - prev_activity < CHAT_HOT_THRESHOLD
+        chance = UNPROMPTED_CHANCE_HOT if chat_is_hot else UNPROMPTED_CHANCE
+        if now - last >= UNPROMPTED_COOLDOWN and random.random() < chance:
+            _chat_last_unprompted[message.chat_id] = now
             await _reply_with_ai(message, text, user, uninvited=True)
             return
 
