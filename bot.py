@@ -8,8 +8,11 @@ import tempfile
 import logging
 import random
 import time
+from html import escape as _he
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote as _urlquote
+
+from aiohttp import web as aio_web
 
 import httpx
 from telegram import Update
@@ -648,6 +651,227 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         log.exception("Failed to delete message %s in chat %s", reaction.message_id, reaction.chat.id)
 
 
+# ─── Admin web dashboard ────────────────────────────────────────────────────
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+_SESSION_COOKIE = "tbd_admin"
+_WEB_PORT = 8080
+
+
+def _page(title: str, body: str, active: str = "") -> str:
+    links = [("Stats", "/admin", "stats"), ("Profiles", "/admin/profiles", "profiles")]
+    nav = "".join(
+        f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
+        for label, url, key in links
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{_he(title)} — tb-dlp</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<nav class="navbar navbar-dark bg-dark px-3 d-flex justify-content-between">
+  <span class="navbar-brand fw-bold mb-0">tb-dlp</span>
+  <div class="d-flex">{nav}</div>
+</nav>
+<div class="container py-4">{body}</div>
+</body>
+</html>"""
+
+
+def _auth(request: aio_web.Request) -> bool:
+    return bool(ADMIN_TOKEN) and request.cookies.get(_SESSION_COOKIE) == ADMIN_TOKEN
+
+
+async def _web_login_get(request: aio_web.Request) -> aio_web.Response:
+    if not ADMIN_TOKEN:
+        return aio_web.Response(
+            text=_page("Login", "<div class='alert alert-danger'>ADMIN_TOKEN secret is not set on Fly.io.</div>"),
+            content_type="text/html",
+        )
+    error = "error" in request.rel_url.query
+    body = f"""
+<div class="row justify-content-center mt-5">
+  <div class="col-sm-8 col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Admin login</h5>
+        {"<div class='alert alert-danger py-2'>Wrong token.</div>" if error else ""}
+        <form method="post">
+          <div class="mb-3">
+            <input type="password" name="token" class="form-control" placeholder="Admin token" autofocus>
+          </div>
+          <button type="submit" class="btn btn-dark w-100">Login</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Login", body), content_type="text/html")
+
+
+async def _web_login_post(request: aio_web.Request) -> aio_web.Response:
+    data = await request.post()
+    if data.get("token") == ADMIN_TOKEN:
+        resp = aio_web.HTTPFound("/admin")
+        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, max_age=7 * 24 * 3600)
+        return resp
+    return aio_web.HTTPFound("/login?error")
+
+
+async def _web_stats(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    total = STATS.get("total", 0)
+    cache_hits = STATS.get("cache_hits", 0)
+    by_platform = STATS.get("by_platform", {})
+    by_chat = STATS.get("by_chat", {})
+
+    platform_rows = "".join(
+        f"<tr><td>{_he(p)}</td><td>{c}</td></tr>"
+        for p, c in sorted(by_platform.items(), key=lambda kv: -kv[1])
+    ) or "<tr><td colspan='2' class='text-muted'>No data yet.</td></tr>"
+
+    chat_rows = "".join(
+        f"<tr><td>{_he(str(d.get('title') or cid))}</td><td>{d.get('total', 0)}</td><td>{d.get('cache_hits', 0)}</td></tr>"
+        for cid, d in sorted(by_chat.items(), key=lambda kv: -kv[1].get("total", 0))
+    ) or "<tr><td colspan='3' class='text-muted'>No data yet.</td></tr>"
+
+    body = f"""
+<h4 class="mb-4">Stats</h4>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{total}</div><div class="text-muted small">Videos sent</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{cache_hits}</div><div class="text-muted small">From cache</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{len(VIDEO_CACHE)}</div><div class="text-muted small">Cached links</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{len(USER_PROFILES)}</div><div class="text-muted small">Profiles</div></div></div></div>
+</div>
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">By platform</div>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Platform</th><th>Count</th></tr></thead>
+        <tbody>{platform_rows}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">By chat</div>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Chat</th><th>Videos</th><th>Cache hits</th></tr></thead>
+        <tbody>{chat_rows}</tbody>
+      </table>
+    </div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Stats", body, active="stats"), content_type="text/html")
+
+
+async def _web_profiles(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    saved = request.rel_url.query.get("saved", "")
+    alert = f"<div class='alert alert-success py-2'>Saved changes for {_he(saved)}.</div>" if saved else ""
+    rows = ""
+    for uid, data in USER_PROFILES.items():
+        name = _he(data.get("name", uid))
+        username = f"@{_he(data['username'])}" if data.get("username") else "—"
+        notes = _he(data.get("notes", ""))
+        buf = len(USER_MESSAGE_BUFFERS.get(int(uid), []))
+        rows += f"""<tr>
+  <td>{name}<br><small class="text-muted">{username}</small></td>
+  <td><small>{notes}</small></td>
+  <td class="text-center"><small class="{'text-success' if buf >= PROFILE_UPDATE_THRESHOLD else ''}">{buf}/{PROFILE_UPDATE_THRESHOLD}</small></td>
+  <td><a href="/admin/profiles/{_he(uid)}/edit" class="btn btn-sm btn-outline-secondary">Edit</a></td>
+</tr>"""
+    if not rows:
+        rows = "<tr><td colspan='4' class='text-muted py-3 text-center'>No profiles yet — need 25+ messages per person.</td></tr>"
+    body = f"""
+<h4 class="mb-3">Member profiles</h4>
+{alert}
+<div class="card shadow-sm">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Member</th><th>Notes</th><th class="text-center">Buffer</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+    return aio_web.Response(text=_page("Profiles", body, active="profiles"), content_type="text/html")
+
+
+async def _web_edit_get(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    uid = request.match_info["user_id"]
+    data = USER_PROFILES.get(uid)
+    if not data:
+        return aio_web.HTTPFound("/admin/profiles")
+    name = _he(data.get("name", uid))
+    username = f"@{_he(data['username'])}" if data.get("username") else ""
+    notes = _he(data.get("notes", ""))
+    buf = len(USER_MESSAGE_BUFFERS.get(int(uid), []))
+    body = f"""
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <a href="/admin/profiles" class="text-decoration-none text-muted">&larr; Back to profiles</a>
+    <h4 class="mt-3">{name} <small class="text-muted fs-6">{username}</small></h4>
+    <p class="text-muted small">Buffer: {buf}/{PROFILE_UPDATE_THRESHOLD} messages until next auto-refresh</p>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control font-monospace" rows="6">{notes}</textarea>
+            <div class="form-text">This is what the AI uses to tailor replies to this person.</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-dark">Save</button>
+            <a href="/admin/profiles" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page(f"Edit — {data.get('name', uid)}", body, active="profiles"), content_type="text/html")
+
+
+async def _web_edit_post(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    uid = request.match_info["user_id"]
+    data = USER_PROFILES.get(uid)
+    if not data:
+        return aio_web.HTTPFound("/admin/profiles")
+    form = await request.post()
+    new_notes = form.get("notes", "").strip()
+    if new_notes:
+        data["notes"] = new_notes
+        USER_PROFILES[uid] = data
+        _save_user_profiles()
+    return aio_web.HTTPFound(f"/admin/profiles?saved={_urlquote(data.get('name', uid))}")
+
+
+async def _start_web_server() -> None:
+    web_app = aio_web.Application()
+    web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
+    web_app.router.add_get("/login", _web_login_get)
+    web_app.router.add_post("/login", _web_login_post)
+    web_app.router.add_get("/admin", _web_stats)
+    web_app.router.add_get("/admin/profiles", _web_profiles)
+    web_app.router.add_get("/admin/profiles/{user_id}/edit", _web_edit_get)
+    web_app.router.add_post("/admin/profiles/{user_id}/edit", _web_edit_post)
+    runner = aio_web.AppRunner(web_app)
+    await runner.setup()
+    await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
+    log.info("Admin web server listening on port %d", _WEB_PORT)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+
 async def daily_update(_) -> None:
     while True:
         await asyncio.sleep(24 * 60 * 60)
@@ -659,6 +883,7 @@ async def daily_update(_) -> None:
 
 async def on_startup(application) -> None:
     asyncio.create_task(daily_update(application))
+    asyncio.create_task(_start_web_server())
 
 
 def main() -> None:
