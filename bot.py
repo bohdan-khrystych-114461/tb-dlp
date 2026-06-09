@@ -482,7 +482,7 @@ if _has_cookies:
 YDL_OPTS = {
     # Prefer pre-muxed formats first — merging separate video+audio streams
     # via ffmpeg spikes memory and OOM-killed the bot on a 256MB machine.
-    "format": "best[height<=720][ext=mp4]/best[height<=720]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best",
+    "format": "best[height<=720][ext=mp4]/best[height<=720]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[vcodec=h264]/best",
     "merge_output_format": "mp4",
     "quiet": True,
     "no_warnings": True,
