@@ -486,7 +486,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         GEMINI_API_KEY
         and user
         and message.reply_to_message
-        and (message.chat_id, message.reply_to_message.message_id) in BOT_MESSAGE_IDS
+        and message.reply_to_message.from_user
+        and message.reply_to_message.from_user.id == context.bot.id
     ):
         await _reply_with_ai(message, text, user)
         return
