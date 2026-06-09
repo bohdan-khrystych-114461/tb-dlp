@@ -37,7 +37,7 @@ YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 INSTAGRAM_RE = re.compile(r"instagram\.com", re.IGNORECASE)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 DOWNLOAD_TRIGGER_RE = re.compile(
-    r"\b(скачай|скачати|скачать|завантаж|завантажи|завантажити|загрузи|загрузить|качай|качни|download|re-?download|dl|get\s+this|try\s+again|retry)\b",
+    r"\b(скачай|скачати|скачать|завантаж|завантажи|завантажити|загрузи|загрузить|качай|качни|download|redownload|retry)\b",
     re.IGNORECASE,
 )
 
