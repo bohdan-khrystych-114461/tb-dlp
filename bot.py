@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import logging
+import random
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -93,12 +95,14 @@ RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
 
 
-async def ask_ai(prompt: str, user_note: str = "", history: list[dict] | None = None) -> str:
+async def ask_ai(prompt: str, user_note: str = "", chat_context: str = "") -> str:
     system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
         system_parts.append(user_note)
+    if chat_context:
+        system_parts.append(chat_context)
 
-    contents = [*(history or []), {"role": "user", "parts": [{"text": prompt}]}]
+    contents = [{"role": "user", "parts": [{"text": prompt}]}]
     payload = {
         "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
         "contents": contents,
@@ -233,11 +237,22 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     USER_MESSAGE_BUFFERS = {}
 
-# Recent back-and-forth per (chat, person) so @mention replies can follow up on
-# what was just said instead of treating every message as a fresh conversation.
-# In-memory only — losing it on restart is fine, it's just short-term context.
-CONVERSATIONS: dict[str, list[dict]] = {}
-CONVERSATION_TURNS = 6  # how many user+model exchanges to keep per person
+# Rolling per-chat message log — persisted to disk so context survives daily
+# restarts. Each entry is {"author": str, "text": str, "is_bot": bool}.
+CHAT_HISTORY_FILE = "/cookies/chat_history.json"
+CHAT_HISTORY_MAX = 40
+
+try:
+    _raw_chat_history = json.loads(Path(CHAT_HISTORY_FILE).read_text())
+    CHAT_HISTORY: dict[int, list[dict]] = {int(k): v for k, v in _raw_chat_history.items()}
+except (FileNotFoundError, json.JSONDecodeError):
+    CHAT_HISTORY = {}
+
+# Small chance the bot jumps in without being @mentioned — makes it feel like
+# a real group member rather than a tool that only responds on command.
+UNPROMPTED_CHANCE = 0.08  # 8% per eligible message
+UNPROMPTED_COOLDOWN = 120  # seconds between unprompted replies per chat
+_chat_last_unprompted: dict[int, float] = {}
 
 # You (and only you) can react with 👎 on a bot message to delete it. We track
 # which (chat, message_id) pairs are the bot's own so this can never be used to
@@ -267,6 +282,34 @@ def _save_message_buffers() -> None:
         log.exception("Failed to persist user message buffers")
 
 
+def _save_chat_history() -> None:
+    try:
+        Path(CHAT_HISTORY_FILE).write_text(json.dumps(CHAT_HISTORY))
+    except OSError:
+        log.exception("Failed to persist chat history")
+
+
+def _append_to_chat_history(chat_id: int, author: str, text: str, *, is_bot: bool) -> None:
+    history = CHAT_HISTORY.setdefault(chat_id, [])
+    history.append({"author": author, "text": text, "is_bot": is_bot})
+    if len(history) > CHAT_HISTORY_MAX:
+        del history[:-CHAT_HISTORY_MAX]
+
+
+def _build_chat_context(chat_id: int) -> str:
+    history = CHAT_HISTORY.get(chat_id, [])
+    # Exclude the last entry — that's the message we're currently responding to,
+    # which is already the explicit prompt passed to ask_ai.
+    display = history[:-1] if len(history) > 1 else []
+    if not display:
+        return ""
+    lines = []
+    for msg in display:
+        prefix = "You" if msg["is_bot"] else msg["author"]
+        lines.append(f"[{prefix}]: {msg['text']}")
+    return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)
+
+
 async def _update_profile(user_id: int, name: str, username: str | None) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if len(messages) < PROFILE_UPDATE_THRESHOLD:
@@ -293,6 +336,39 @@ async def _update_profile(user_id: int, name: str, username: str | None) -> None
     _save_user_profiles()
 
 
+async def _reply_with_ai(
+    message, prompt: str, user, *, uninvited: bool = False
+) -> None:
+    global _rate_limited_once
+
+    profile = USER_PROFILES.get(str(user.id)) if user else None
+    user_note = (
+        f"A note about {user.full_name}: {profile['notes']}"
+        if profile else ""
+    )
+    chat_context = _build_chat_context(message.chat_id)
+    if uninvited:
+        note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in."
+        chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
+
+    try:
+        reply = await ask_ai(prompt, user_note=user_note, chat_context=chat_context)
+        sent = await message.reply_text(reply)
+        _track_bot_message(sent.chat_id, sent.message_id)
+        _append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
+        _save_chat_history()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429 or exc.response.status_code >= 500:
+            text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
+            _rate_limited_once = True
+            sent = await message.reply_text(text_reply)
+            _track_bot_message(sent.chat_id, sent.message_id)
+        else:
+            log.exception("AI request failed")
+    except Exception:
+        log.exception("AI request failed")
+
+
 COOKIES_FILE = "/cookies/cookies.txt"
 _has_cookies = Path(COOKIES_FILE).exists()
 if _has_cookies:
@@ -312,8 +388,6 @@ YDL_OPTS = {
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global _rate_limited_once
-
     message = update.message
     if not message or not message.text:
         return
@@ -327,46 +401,31 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     bot_username = context.bot.username
     user = message.from_user
 
-    if GEMINI_API_KEY and user and not user.is_bot:
-        USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
-        _save_message_buffers()
-        asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
+    if user and not user.is_bot:
+        _append_to_chat_history(message.chat_id, user.full_name, text, is_bot=False)
+        if GEMINI_API_KEY:
+            USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
+            _save_message_buffers()
+            asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
 
-    if GEMINI_API_KEY and bot_username and f"@{bot_username}" in text:
+    if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
         prompt = text.replace(f"@{bot_username}", "").strip()
         if prompt:
-            convo_key = f"{message.chat_id}:{user.id}"
-            try:
-                profile = USER_PROFILES.get(str(user.id)) if user else None
-                user_note = (
-                    f"A note about {user.full_name}, who's talking to you right now: {profile['notes']}"
-                    if profile else ""
-                )
-                history = CONVERSATIONS.get(convo_key, [])
-                reply = await ask_ai(prompt, user_note, history=history)
-                sent = await message.reply_text(reply)
-                _track_bot_message(sent.chat_id, sent.message_id)
-
-                history = history + [
-                    {"role": "user", "parts": [{"text": prompt}]},
-                    {"role": "model", "parts": [{"text": reply}]},
-                ]
-                CONVERSATIONS[convo_key] = history[-(CONVERSATION_TURNS * 2):]
-            except httpx.HTTPStatusError as exc:
-                # Whether it's quota exhaustion (429) or Google's servers
-                # being temporarily down (5xx), the chat experiences it the
-                # same way — the bot going silent — so it gets the same canned
-                # "перекур" reply either way instead of just logging quietly.
-                if exc.response.status_code == 429 or exc.response.status_code >= 500:
-                    text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
-                    _rate_limited_once = True
-                    sent = await message.reply_text(text_reply)
-                    _track_bot_message(sent.chat_id, sent.message_id)
-                else:
-                    log.exception("AI request failed")
-            except Exception:
-                log.exception("AI request failed")
+            await _reply_with_ai(message, prompt, user)
         return
+
+    if (
+        GEMINI_API_KEY
+        and user
+        and not user.is_bot
+        and len(text) >= 10
+        and not text.startswith("/")
+    ):
+        last = _chat_last_unprompted.get(message.chat_id, 0)
+        if time.time() - last >= UNPROMPTED_COOLDOWN and random.random() < UNPROMPTED_CHANCE:
+            _chat_last_unprompted[message.chat_id] = time.time()
+            await _reply_with_ai(message, text, user, uninvited=True)
+            return
 
     urls = URL_RE.findall(text)
     if not urls:
@@ -492,6 +551,19 @@ async def chatstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await message.reply_text("\n".join(lines))
 
 
+def _find_profile(query: str) -> tuple[str, dict] | None:
+    q = query.lstrip("@").lower()
+    for user_id, data in USER_PROFILES.items():
+        if data.get("username", "").lower() == q:
+            return user_id, data
+        if data.get("name", "").lower() == q:
+            return user_id, data
+    for user_id, data in USER_PROFILES.items():
+        if q in data.get("name", "").lower():
+            return user_id, data
+    return None
+
+
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message or not _is_admin_dm(message):
@@ -503,12 +575,50 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
+    query = " ".join(context.args).strip() if context.args else ""
+    if query:
+        match = _find_profile(query)
+        if not match:
+            await message.reply_text(f"No profile found for '{query}'.")
+            return
+        user_id, data = match
+        buf_count = len(USER_MESSAGE_BUFFERS.get(int(user_id), []))
+        handle = f" (@{data['username']})" if data.get("username") else ""
+        await message.reply_text(
+            f"{data['name']}{handle}\n\nNotes: {data['notes']}\n\nBuffer: {buf_count}/{PROFILE_UPDATE_THRESHOLD} messages until next refresh"
+        )
+        return
+
     lines = ["👥 What the bot has picked up on each member:"]
     for data in USER_PROFILES.values():
         handle = f" (@{data['username']})" if data.get("username") else ""
         lines.append(f"\n{data['name']}{handle}: {data['notes']}")
 
     await message.reply_text("\n".join(lines))
+
+
+async def editprofile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    if not context.args or len(context.args) < 2:
+        await message.reply_text("Usage: /editprofile <@username or name> <new notes>")
+        return
+
+    query = context.args[0]
+    new_notes = " ".join(context.args[1:])
+
+    match = _find_profile(query)
+    if not match:
+        await message.reply_text(f"No profile found for '{query}'.")
+        return
+
+    user_id, data = match
+    data["notes"] = new_notes
+    USER_PROFILES[user_id] = data
+    _save_user_profiles()
+    await message.reply_text(f"Updated notes for {data['name']}.")
 
 
 # NOTE: Telegram only delivers message_reaction updates to bots that are
@@ -557,6 +667,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("chatstats", chatstats_command))
     app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("editprofile", editprofile_command))
     app.add_handler(MessageReactionHandler(on_reaction))
     log.info("Bot started, polling...")
     # message_reaction updates aren't included by default — request everything
