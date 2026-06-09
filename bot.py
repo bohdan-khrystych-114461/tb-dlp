@@ -643,7 +643,7 @@ async def _send_generated_image(message, prompt: str) -> None:
         from urllib.parse import quote
         url = f"https://image.pollinations.ai/prompt/{quote(prompt)}"
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers={"Referer": "https://pollinations.ai/"})
         if resp.status_code == 200:
             await message.reply_photo(resp.content)
         else:
