@@ -896,7 +896,7 @@ async def daily_update(_) -> None:
 
 async def on_startup(application) -> None:
     asyncio.create_task(daily_update(application))
-    asyncio.create_task(_start_web_server())
+    await _start_web_server()  # await so the port is bound before run_polling returns
 
 
 def main() -> None:
