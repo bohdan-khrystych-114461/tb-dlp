@@ -35,7 +35,7 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 
-ALLOWED_CHAT_IDS = {
+_DEFAULT_CHAT_IDS = {
     -1003938853999,  # kek
     -1001986640555,  # 2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні
     -4774844208,     # Бібізянські пріколи
@@ -43,6 +43,20 @@ ALLOWED_CHAT_IDS = {
     -5170628911,     # Чат де соромно за свою англійську
     -1003988355756,  # 🩳 шорти 🔞
 }
+
+WHITELIST_FILE = "/cookies/whitelist.json"
+try:
+    ALLOWED_CHAT_IDS: set[int] = set(json.loads(Path(WHITELIST_FILE).read_text()))
+except (FileNotFoundError, json.JSONDecodeError):
+    ALLOWED_CHAT_IDS = set(_DEFAULT_CHAT_IDS)
+
+# All chats the bot has ever seen — populated before the whitelist check so we
+# collect names even from chats trying to reach the bot before being approved.
+CHAT_NAMES_FILE = "/cookies/chat_names.json"
+try:
+    CHAT_NAMES: dict[int, str] = {int(k): v for k, v in json.loads(Path(CHAT_NAMES_FILE).read_text()).items()}
+except (FileNotFoundError, json.JSONDecodeError):
+    CHAT_NAMES = {}
 
 # Admin-only commands (/stats, /profile) are restricted to a private DM from
 # this Telegram user — keeps usage data and member profiles out of the groups.
@@ -261,14 +275,29 @@ _chat_last_unprompted: dict[int, float] = {}
 # which (chat, message_id) pairs are the bot's own so this can never be used to
 # remove someone else's message.
 DELETE_REACTION_EMOJI = "👎"
-BOT_MESSAGE_IDS: set[tuple[int, int]] = set()
 MAX_TRACKED_MESSAGES = 1000
+
+BOT_MESSAGE_IDS_FILE = "/cookies/bot_message_ids.json"
+try:
+    BOT_MESSAGE_IDS: set[tuple[int, int]] = {
+        (int(p[0]), int(p[1])) for p in json.loads(Path(BOT_MESSAGE_IDS_FILE).read_text())
+    }
+except (FileNotFoundError, json.JSONDecodeError):
+    BOT_MESSAGE_IDS = set()
+
+
+def _save_bot_message_ids() -> None:
+    try:
+        Path(BOT_MESSAGE_IDS_FILE).write_text(json.dumps(list(BOT_MESSAGE_IDS)))
+    except OSError:
+        log.exception("Failed to persist bot message IDs")
 
 
 def _track_bot_message(chat_id: int, message_id: int) -> None:
     BOT_MESSAGE_IDS.add((chat_id, message_id))
     if len(BOT_MESSAGE_IDS) > MAX_TRACKED_MESSAGES:
         BOT_MESSAGE_IDS.pop()
+    _save_bot_message_ids()
 
 
 def _save_user_profiles() -> None:
@@ -283,6 +312,20 @@ def _save_message_buffers() -> None:
         Path(USER_MESSAGE_BUFFERS_FILE).write_text(json.dumps(USER_MESSAGE_BUFFERS))
     except OSError:
         log.exception("Failed to persist user message buffers")
+
+
+def _save_whitelist() -> None:
+    try:
+        Path(WHITELIST_FILE).write_text(json.dumps(list(ALLOWED_CHAT_IDS)))
+    except OSError:
+        log.exception("Failed to persist whitelist")
+
+
+def _save_chat_names() -> None:
+    try:
+        Path(CHAT_NAMES_FILE).write_text(json.dumps(CHAT_NAMES))
+    except OSError:
+        log.exception("Failed to persist chat names")
 
 
 def _save_chat_history() -> None:
@@ -313,9 +356,11 @@ def _build_chat_context(chat_id: int) -> str:
     return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)
 
 
-async def _update_profile(user_id: int, name: str, username: str | None) -> None:
+async def _update_profile(user_id: int, name: str, username: str | None, *, force: bool = False) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
-    if len(messages) < PROFILE_UPDATE_THRESHOLD:
+    if not force and len(messages) < PROFILE_UPDATE_THRESHOLD:
+        return
+    if not messages:
         return
     USER_MESSAGE_BUFFERS[user_id] = []
     _save_message_buffers()
@@ -397,6 +442,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     log.info("Message from chat_id=%s chat_title=%r", message.chat_id, message.chat.title)
 
+    if message.chat.title and CHAT_NAMES.get(message.chat_id) != message.chat.title:
+        CHAT_NAMES[message.chat_id] = message.chat.title
+        _save_chat_names()
+
     if message.chat_id not in ALLOWED_CHAT_IDS:
         return
 
@@ -415,6 +464,15 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         prompt = text.replace(f"@{bot_username}", "").strip()
         if prompt:
             await _reply_with_ai(message, prompt, user)
+        return
+
+    if (
+        GEMINI_API_KEY
+        and user
+        and message.reply_to_message
+        and (message.chat_id, message.reply_to_message.message_id) in BOT_MESSAGE_IDS
+    ):
+        await _reply_with_ai(message, text, user)
         return
 
     if (
@@ -660,7 +718,12 @@ _WEB_PORT = 8080
 
 
 def _page(title: str, body: str, active: str = "") -> str:
-    links = [("Stats", "/admin", "stats"), ("Profiles", "/admin/profiles", "profiles")]
+    links = [
+        ("Stats", "/admin", "stats"),
+        ("Profiles", "/admin/profiles", "profiles"),
+        ("Chats", "/admin/chats", "chats"),
+        ("Whitelist", "/admin/whitelist", "whitelist"),
+    ]
     nav = "".join(
         f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
         for label, url, key in links
@@ -828,10 +891,17 @@ async def _web_edit_get(request: aio_web.Request) -> aio_web.Response:
             <textarea name="notes" class="form-control font-monospace" rows="6">{notes}</textarea>
             <div class="form-text">This is what the AI uses to tailor replies to this person.</div>
           </div>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <button type="submit" class="btn btn-dark">Save</button>
             <a href="/admin/profiles" class="btn btn-outline-secondary">Cancel</a>
           </div>
+        </form>
+        <hr>
+        <form method="post" action="/admin/profiles/{_he(uid)}/refresh">
+          <button type="submit" class="btn btn-outline-primary btn-sm" {'disabled' if buf == 0 else ''}>
+            Refresh profile now ({buf} buffered messages)
+          </button>
+          {"<div class='form-text text-warning'>No buffered messages to summarize yet.</div>" if buf == 0 else ""}
         </form>
       </div>
     </div>
@@ -869,6 +939,155 @@ async def _token_middleware(request: aio_web.Request, handler):
     return await handler(request)
 
 
+async def _web_refresh_profile(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    uid = request.match_info["user_id"]
+    data = USER_PROFILES.get(uid)
+    if not data:
+        return aio_web.HTTPFound("/admin/profiles")
+    buf = USER_MESSAGE_BUFFERS.get(int(uid), [])
+    if not buf:
+        return aio_web.HTTPFound(f"/admin/profiles/{uid}/edit")
+    asyncio.create_task(_update_profile(int(uid), data["name"], data.get("username"), force=True))
+    return aio_web.HTTPFound(f"/admin/profiles?saved={_urlquote(data.get('name', uid))}")
+
+
+async def _web_chats(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    rows = ""
+    for chat_id, history in sorted(CHAT_HISTORY.items(), key=lambda kv: len(kv[1]), reverse=True):
+        name = _he(CHAT_NAMES.get(chat_id, str(chat_id)))
+        rows += (
+            f"<tr><td>{name}<br><small class='text-muted'>{chat_id}</small></td>"
+            f"<td>{len(history)}</td>"
+            f"<td><a href='/admin/chats/{chat_id}' class='btn btn-sm btn-outline-secondary'>View</a></td></tr>"
+        )
+    if not rows:
+        rows = "<tr><td colspan='3' class='text-muted text-center py-3'>No chat history yet.</td></tr>"
+    body = f"""
+<h4 class="mb-3">Chat history</h4>
+<div class="card shadow-sm">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Chat</th><th>Messages stored</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+    return aio_web.Response(text=_page("Chats", body, active="chats"), content_type="text/html")
+
+
+async def _web_chat_detail(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    try:
+        chat_id = int(request.match_info["chat_id"])
+    except ValueError:
+        return aio_web.HTTPFound("/admin/chats")
+    history = CHAT_HISTORY.get(chat_id, [])
+    name = _he(CHAT_NAMES.get(chat_id, str(chat_id)))
+    rows = "".join(
+        f"<tr class='{'table-info' if m['is_bot'] else ''}'>"
+        f"<td class='text-nowrap'><small>{'🤖 Bot' if m['is_bot'] else _he(m['author'])}</small></td>"
+        f"<td><small>{_he(m['text'])}</small></td></tr>"
+        for m in history
+    ) or "<tr><td colspan='2' class='text-muted text-center'>No messages.</td></tr>"
+    body = f"""
+<a href="/admin/chats" class="text-decoration-none text-muted">&larr; Back</a>
+<h4 class="mt-3">{name}</h4>
+<p class="text-muted small">Last {len(history)} messages (oldest at top)</p>
+<div class="card shadow-sm">
+  <table class="table table-sm mb-0">
+    <thead class="table-light"><tr><th style="width:18%">Author</th><th>Message</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+    return aio_web.Response(text=_page(f"Chat — {CHAT_NAMES.get(chat_id, str(chat_id))}", body, active="chats"), content_type="text/html")
+
+
+async def _web_whitelist(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    msg = request.rel_url.query.get("msg", "")
+    alert = f"<div class='alert alert-success py-2'>{_he(msg)}</div>" if msg else ""
+    rows = ""
+    for chat_id in sorted(ALLOWED_CHAT_IDS):
+        name = _he(CHAT_NAMES.get(chat_id, "—"))
+        rows += (
+            f"<tr><td>{name}</td><td><code>{chat_id}</code></td><td>"
+            f"<form method='post' action='/admin/whitelist/remove' style='display:inline'>"
+            f"<input type='hidden' name='chat_id' value='{chat_id}'>"
+            f"<button class='btn btn-sm btn-outline-danger' onclick=\"return confirm('Remove {name}?')\">Remove</button>"
+            f"</form></td></tr>"
+        )
+    unseen = {cid: n for cid, n in CHAT_NAMES.items() if cid not in ALLOWED_CHAT_IDS}
+    known_options = "".join(
+        f"<option value='{cid}'>{_he(n)} ({cid})</option>"
+        for cid, n in sorted(unseen.items(), key=lambda kv: kv[1])
+    )
+    body = f"""
+<h4 class="mb-3">Whitelist</h4>
+{alert}
+<div class="card shadow-sm mb-4">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Chat name</th><th>Chat ID</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Add chat</div>
+  <div class="card-body">
+    <form method="post" action="/admin/whitelist/add" class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label small">Known chats (seen but not whitelisted)</label>
+        <select name="known_id" class="form-select form-select-sm">
+          <option value="">— pick one —</option>
+          {known_options}
+        </select>
+      </div>
+      <div class="col-auto pt-3 text-muted small">or</div>
+      <div class="col-md-4">
+        <label class="form-label small">Enter chat ID manually</label>
+        <input type="number" name="manual_id" class="form-control form-control-sm" placeholder="-100...">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-dark btn-sm w-100">Add</button>
+      </div>
+    </form>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Whitelist", body, active="whitelist"), content_type="text/html")
+
+
+async def _web_whitelist_add(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    raw = (form.get("known_id") or form.get("manual_id", "")).strip()
+    try:
+        chat_id = int(raw)
+    except (ValueError, TypeError):
+        return aio_web.HTTPFound("/admin/whitelist?msg=Invalid+chat+ID")
+    ALLOWED_CHAT_IDS.add(chat_id)
+    _save_whitelist()
+    name = CHAT_NAMES.get(chat_id, str(chat_id))
+    return aio_web.HTTPFound(f"/admin/whitelist?msg={_urlquote(f'Added: {name}')}")
+
+
+async def _web_whitelist_remove(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    try:
+        chat_id = int(form.get("chat_id", ""))
+    except (ValueError, TypeError):
+        return aio_web.HTTPFound("/admin/whitelist")
+    ALLOWED_CHAT_IDS.discard(chat_id)
+    _save_whitelist()
+    name = CHAT_NAMES.get(chat_id, str(chat_id))
+    return aio_web.HTTPFound(f"/admin/whitelist?msg={_urlquote(f'Removed: {name}')}")
+
+
 async def _start_web_server() -> None:
     web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
@@ -878,6 +1097,12 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/profiles", _web_profiles)
     web_app.router.add_get("/admin/profiles/{user_id}/edit", _web_edit_get)
     web_app.router.add_post("/admin/profiles/{user_id}/edit", _web_edit_post)
+    web_app.router.add_post("/admin/profiles/{user_id}/refresh", _web_refresh_profile)
+    web_app.router.add_get("/admin/chats", _web_chats)
+    web_app.router.add_get("/admin/chats/{chat_id}", _web_chat_detail)
+    web_app.router.add_get("/admin/whitelist", _web_whitelist)
+    web_app.router.add_post("/admin/whitelist/add", _web_whitelist_add)
+    web_app.router.add_post("/admin/whitelist/remove", _web_whitelist_remove)
     runner = aio_web.AppRunner(web_app)
     await runner.setup()
     await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
