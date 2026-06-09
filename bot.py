@@ -87,19 +87,15 @@ GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # 20 RPD
     "gemini-3-flash-preview", # 20 RPD
 ]
-IMAGEN_MODELS = [
-    "imagen-4.0-fast-generate-001",  # 25 RPD
-    "imagen-4.0-generate-001",       # 25 RPD
-    "imagen-4.0-ultra-generate-001", # 25 RPD
-]
+IMAGEN_MODELS = ["imagen-4.0-generate-001"]
 
-# Matches explicit image generation requests in any supported language
 GENERATE_RE = re.compile(
     r"\b(намалюй|нарисуй|згенеруй|генеруй|сгенерируй|генерируй|"
     r"зроби\s+картинку|створи\s+картинку|создай\s+картинку|создай\s+изображение|"
     r"generate\s+image|draw\s+me|draw\s+a|draw\s+an)\b",
     re.IGNORECASE,
 )
+
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
     "Your default tone is genuine and relaxed. When someone shares something "
@@ -144,7 +140,6 @@ async def ask_ai(
     chat_context: str = "",
     image_bytes: bytes | None = None,
     image_mime: str = "image/jpeg",
-    models: list[str] | None = None,
 ) -> str:
     system_parts = [AI_SYSTEM_PROMPT]
     if user_note:
@@ -174,7 +169,7 @@ async def ask_ai(
 
     async with httpx.AsyncClient(timeout=30) as client:
         last_error: httpx.HTTPStatusError | None = None
-        for model in (models or GEMINI_MODELS):
+        for model in GEMINI_MODELS:
             resp = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 params={"key": GEMINI_API_KEY},
