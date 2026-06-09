@@ -749,7 +749,6 @@ def _page(title: str, body: str, active: str = "") -> str:
     links = [
         ("Stats", "/admin", "stats"),
         ("Profiles", "/admin/profiles", "profiles"),
-        ("Chats", "/admin/chats", "chats"),
         ("Whitelist", "/admin/whitelist", "whitelist"),
     ]
     nav = "".join(
@@ -993,57 +992,6 @@ async def _web_refresh_profile(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/profiles?saved={_urlquote(data.get('name', uid))}")
 
 
-async def _web_chats(request: aio_web.Request) -> aio_web.Response:
-    if not _auth(request):
-        return aio_web.HTTPFound("/login")
-    rows = ""
-    for chat_id, history in sorted(CHAT_HISTORY.items(), key=lambda kv: len(kv[1]), reverse=True):
-        name = _he(_chat_name(chat_id))
-        rows += (
-            f"<tr><td>{name}<br><small class='text-muted'>{chat_id}</small></td>"
-            f"<td>{len(history)}</td>"
-            f"<td><a href='/admin/chats/{chat_id}' class='btn btn-sm btn-outline-secondary'>View</a></td></tr>"
-        )
-    if not rows:
-        rows = "<tr><td colspan='3' class='text-muted text-center py-3'>No chat history yet.</td></tr>"
-    body = f"""
-<h4 class="mb-3">Chat history</h4>
-<div class="card shadow-sm">
-  <table class="table table-hover align-middle mb-0">
-    <thead class="table-light"><tr><th>Chat</th><th>Messages stored</th><th></th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-</div>"""
-    return aio_web.Response(text=_page("Chats", body, active="chats"), content_type="text/html")
-
-
-async def _web_chat_detail(request: aio_web.Request) -> aio_web.Response:
-    if not _auth(request):
-        return aio_web.HTTPFound("/login")
-    try:
-        chat_id = int(request.match_info["chat_id"])
-    except ValueError:
-        return aio_web.HTTPFound("/admin/chats")
-    history = CHAT_HISTORY.get(chat_id, [])
-    name = _he(_chat_name(chat_id))
-    rows = "".join(
-        f"<tr class='{'table-info' if m['is_bot'] else ''}'>"
-        f"<td class='text-nowrap'><small>{'🤖 Bot' if m['is_bot'] else _he(m['author'])}</small></td>"
-        f"<td><small>{_he(m['text'])}</small></td></tr>"
-        for m in history
-    ) or "<tr><td colspan='2' class='text-muted text-center'>No messages.</td></tr>"
-    body = f"""
-<a href="/admin/chats" class="text-decoration-none text-muted">&larr; Back</a>
-<h4 class="mt-3">{name}</h4>
-<p class="text-muted small">Last {len(history)} messages (oldest at top)</p>
-<div class="card shadow-sm">
-  <table class="table table-sm mb-0">
-    <thead class="table-light"><tr><th style="width:18%">Author</th><th>Message</th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-</div>"""
-    return aio_web.Response(text=_page(f"Chat — {_chat_name(chat_id)}", body, active="chats"), content_type="text/html")
-
 
 async def _web_whitelist(request: aio_web.Request) -> aio_web.Response:
     if not _auth(request):
@@ -1138,8 +1086,6 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/profiles/{user_id}/edit", _web_edit_get)
     web_app.router.add_post("/admin/profiles/{user_id}/edit", _web_edit_post)
     web_app.router.add_post("/admin/profiles/{user_id}/refresh", _web_refresh_profile)
-    web_app.router.add_get("/admin/chats", _web_chats)
-    web_app.router.add_get("/admin/chats/{chat_id}", _web_chat_detail)
     web_app.router.add_get("/admin/whitelist", _web_whitelist)
     web_app.router.add_post("/admin/whitelist/add", _web_whitelist_add)
     web_app.router.add_post("/admin/whitelist/remove", _web_whitelist_remove)
