@@ -44,6 +44,15 @@ _DEFAULT_CHAT_IDS = {
     -1003988355756,  # 🩳 шорти 🔞
 }
 
+_DEFAULT_CHAT_NAMES = {
+    -1003938853999: "kek",
+    -1001986640555: "2 Козака і 3 супостата (або 5 комп'ютерників) без хуйні",
+    -4774844208:    "Бібізянські пріколи",
+    -4268125559:    "Прікольчіки",
+    -5170628911:    "Чат де соромно за свою англійську",
+    -1003988355756: "🩳 шорти 🔞",
+}
+
 WHITELIST_FILE = "/cookies/whitelist.json"
 try:
     ALLOWED_CHAT_IDS: set[int] = set(json.loads(Path(WHITELIST_FILE).read_text()))
@@ -57,6 +66,9 @@ try:
     CHAT_NAMES: dict[int, str] = {int(k): v for k, v in json.loads(Path(CHAT_NAMES_FILE).read_text()).items()}
 except (FileNotFoundError, json.JSONDecodeError):
     CHAT_NAMES = {}
+# Seed known names so the whitelist page isn't blank on first run
+for _cid, _cname in _DEFAULT_CHAT_NAMES.items():
+    CHAT_NAMES.setdefault(_cid, _cname)
 
 # Admin-only commands (/stats, /profile) are restricted to a private DM from
 # this Telegram user — keeps usage data and member profiles out of the groups.
