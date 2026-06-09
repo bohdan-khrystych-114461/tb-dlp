@@ -525,6 +525,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if (
         user
         and message.reply_to_message
+        and bot_username
+        and f"@{bot_username}" in text
         and DOWNLOAD_TRIGGER_RE.search(text)
     ):
         src = message.reply_to_message.text or message.reply_to_message.caption or ""
