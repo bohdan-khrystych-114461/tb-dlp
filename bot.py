@@ -87,6 +87,13 @@ GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # 20 RPD
     "gemini-3-flash-preview", # 20 RPD
 ]
+IMAGEN_MODELS = ["imagen-4.0-fast-generate-001", "imagen-4.0-generate-001"]
+
+# Matches explicit image generation requests in any supported language
+GENERATE_RE = re.compile(
+    r"\b(намалюй|нарисуй|згенеруй|зроби\s+картинку|створи\s+картинку|generate\s+image|draw\s+me|draw\s+a|draw\s+an)\b",
+    re.IGNORECASE,
+)
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
     "Your default tone is genuine and relaxed. When someone shares something "
@@ -420,6 +427,39 @@ async def _update_profile(user_id: int, name: str, username: str | None, *, forc
     _save_user_profiles()
 
 
+async def generate_image(prompt: str) -> bytes | None:
+    import base64
+    async with httpx.AsyncClient(timeout=60) as client:
+        for model in IMAGEN_MODELS:
+            resp = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict",
+                params={"key": GEMINI_API_KEY},
+                json={"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}},
+            )
+            if resp.status_code == 429 or resp.status_code >= 500:
+                continue
+            resp.raise_for_status()
+            predictions = resp.json().get("predictions", [])
+            if predictions:
+                return base64.b64decode(predictions[0]["bytesBase64Encoded"])
+    return None
+
+
+async def _send_generated_image(message, prompt: str) -> None:
+    if not prompt:
+        await message.reply_text("Вкажи що генерувати.")
+        return
+    try:
+        img_bytes = await generate_image(prompt)
+        if img_bytes:
+            await message.reply_photo(img_bytes)
+        else:
+            await message.reply_text("Ліміт генерації вичерпано, спробуй пізніше.")
+    except Exception:
+        log.exception("Image generation failed")
+        await message.reply_text("Щось пішло не так при генерації.")
+
+
 async def _reply_with_ai(
     message, prompt: str, user, *, uninvited: bool = False
 ) -> None:
@@ -514,7 +554,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
-        await _reply_with_ai(message, prompt, user)
+        if GENERATE_RE.search(prompt):
+            await _send_generated_image(message, GENERATE_RE.sub("", prompt).strip() or prompt)
+        else:
+            await _reply_with_ai(message, prompt, user)
         return
 
     if (
@@ -524,8 +567,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
     ):
-        photo_prompt = message.caption or text
-        await _reply_with_ai(message, photo_prompt, user)
+        prompt = message.caption or text
+        if GENERATE_RE.search(prompt):
+            await _send_generated_image(message, GENERATE_RE.sub("", prompt).strip() or prompt)
+        else:
+            await _reply_with_ai(message, prompt, user)
         return
 
     if (
@@ -617,6 +663,17 @@ async def _download_and_send(update: Update, url: str) -> None:
             pass  # URL wasn't a supported video — silently ignore
         except Exception:
             log.exception("Unexpected error for %s", url)
+
+
+async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or message.chat_id not in ALLOWED_CHAT_IDS:
+        return
+    prompt = " ".join(context.args)
+    if not prompt:
+        await message.reply_text("Вкажи що генерувати: /generate <опис картинки>")
+        return
+    await _send_generated_image(message, prompt)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1149,6 +1206,7 @@ def main() -> None:
     app.add_handler(CommandHandler("chatstats", chatstats_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("editprofile", editprofile_command))
+    app.add_handler(CommandHandler("generate", generate_command))
     app.add_handler(MessageReactionHandler(on_reaction))
     log.info("Bot started, polling...")
     # message_reaction updates aren't included by default — request everything
