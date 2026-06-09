@@ -855,8 +855,21 @@ async def _web_edit_post(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/profiles?saved={_urlquote(data.get('name', uid))}")
 
 
+@aio_web.middleware
+async def _token_middleware(request: aio_web.Request, handler):
+    token = request.rel_url.query.get("token")
+    if token and token == ADMIN_TOKEN:
+        clean = str(request.rel_url.with_query(
+            {k: v for k, v in request.rel_url.query.items() if k != "token"}
+        ))
+        resp = aio_web.HTTPFound(clean or request.path)
+        resp.set_cookie(_SESSION_COOKIE, ADMIN_TOKEN, httponly=True, max_age=7 * 24 * 3600)
+        return resp
+    return await handler(request)
+
+
 async def _start_web_server() -> None:
-    web_app = aio_web.Application()
+    web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
     web_app.router.add_get("/login", _web_login_get)
     web_app.router.add_post("/login", _web_login_post)
