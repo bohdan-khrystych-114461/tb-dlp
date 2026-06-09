@@ -88,13 +88,6 @@ GEMINI_MODELS = [
     "gemini-3-flash-preview", # 20 RPD
 ]
 
-GENERATE_RE = re.compile(
-    r"\b(намалюй|нарисуй|згенеруй|генеруй|сгенерируй|генерируй|"
-    r"зроби\s+картинку|створи\s+картинку|создай\s+картинку|создай\s+изображение|"
-    r"generate\s+image|draw\s+me|draw\s+a|draw\s+an)\b",
-    re.IGNORECASE,
-)
-
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
     "Your default tone is genuine and relaxed. When someone shares something "
@@ -524,10 +517,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
-        if GENERATE_RE.search(prompt):
-            await _send_generated_image(message, GENERATE_RE.sub("", prompt).strip() or prompt)
-        else:
-            await _reply_with_ai(message, prompt, user)
+        await _reply_with_ai(message, prompt, user)
         return
 
     if (
@@ -537,11 +527,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
     ):
-        prompt = message.caption or text
-        if GENERATE_RE.search(prompt):
-            await _send_generated_image(message, GENERATE_RE.sub("", prompt).strip() or prompt)
-        else:
-            await _reply_with_ai(message, prompt, user)
+        await _reply_with_ai(message, message.caption or text, user)
         return
 
     if (
@@ -633,36 +619,6 @@ async def _download_and_send(update: Update, url: str) -> None:
             pass  # URL wasn't a supported video — silently ignore
         except Exception:
             log.exception("Unexpected error for %s", url)
-
-
-async def _send_generated_image(message, prompt: str) -> None:
-    if not prompt:
-        await message.reply_text("Вкажи що генерувати.")
-        return
-    try:
-        from urllib.parse import quote
-        url = f"https://image.pollinations.ai/prompt/{quote(prompt)}"
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.get(url, headers={"Referer": "https://pollinations.ai/"})
-        if resp.status_code == 200:
-            await message.reply_photo(resp.content)
-        else:
-            log.error("Pollinations returned %s", resp.status_code)
-            await message.reply_text("Не вдалось згенерувати картинку, спробуй пізніше.")
-    except Exception:
-        log.exception("Image generation failed")
-        await message.reply_text("Щось пішло не так при генерації.")
-
-
-async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.message
-    if not message or message.chat_id not in ALLOWED_CHAT_IDS:
-        return
-    prompt = " ".join(context.args)
-    if not prompt:
-        await message.reply_text("Вкажи що генерувати: /generate <опис картинки>")
-        return
-    await _send_generated_image(message, prompt)
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1195,7 +1151,6 @@ def main() -> None:
     app.add_handler(CommandHandler("chatstats", chatstats_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("editprofile", editprofile_command))
-    app.add_handler(CommandHandler("generate", generate_command))
     app.add_handler(MessageReactionHandler(on_reaction))
     log.info("Bot started, polling...")
     # message_reaction updates aren't included by default — request everything
