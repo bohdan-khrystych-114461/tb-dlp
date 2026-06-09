@@ -36,6 +36,10 @@ URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 INSTAGRAM_RE = re.compile(r"instagram\.com", re.IGNORECASE)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+DOWNLOAD_TRIGGER_RE = re.compile(
+    r"\b(скачай|скачати|скачать|завантаж|завантажи|завантажити|загрузи|загрузить|качай|качни|download|re-?download|dl|get\s+this|try\s+again|retry)\b",
+    re.IGNORECASE,
+)
 
 _DEFAULT_CHAT_IDS: set[int] = set(
     json.loads(os.environ["DEFAULT_CHAT_IDS"])
@@ -516,6 +520,19 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             _save_message_buffers()
             asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
+
+    # Reply to a message containing a URL + download trigger phrase → re-download
+    if (
+        user
+        and message.reply_to_message
+        and DOWNLOAD_TRIGGER_RE.search(text)
+    ):
+        src = message.reply_to_message.text or message.reply_to_message.caption or ""
+        urls = URL_RE.findall(src)
+        if urls:
+            for url in urls:
+                await handle_url(update, url)
+            return
 
     if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
