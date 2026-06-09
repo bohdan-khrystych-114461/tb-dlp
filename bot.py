@@ -87,7 +87,6 @@ GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # 20 RPD
     "gemini-3-flash-preview", # 20 RPD
 ]
-IMAGEN_MODELS = ["imagen-4.0-generate-001"]
 
 GENERATE_RE = re.compile(
     r"\b(намалюй|нарисуй|згенеруй|генеруй|сгенерируй|генерируй|"
@@ -429,55 +428,6 @@ async def _update_profile(user_id: int, name: str, username: str | None, *, forc
     _save_user_profiles()
 
 
-async def _to_english_prompt(text: str) -> str:
-    """Translate an image prompt to English for Imagen (works best with English)."""
-    try:
-        result = await ask_ai(
-            f"Translate this image generation prompt to English. Return ONLY the translated prompt, nothing else: {text}",
-            models=["gemini-3.1-flash-lite"],
-        )
-        return result.strip()
-    except Exception:
-        return text
-
-
-async def generate_image(prompt: str) -> bytes | None:
-    import base64
-    async with httpx.AsyncClient(timeout=60) as client:
-        for model in IMAGEN_MODELS:
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict",
-                params={"key": GEMINI_API_KEY},
-                json={"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}},
-            )
-            if resp.status_code == 429 or resp.status_code >= 500:
-                continue
-            if not resp.is_success:
-                log.error("Imagen %s returned %s: %s", model, resp.status_code, resp.text)
-                raise httpx.HTTPStatusError(
-                    f"{resp.status_code} from {model}", request=resp.request, response=resp
-                )
-            predictions = resp.json().get("predictions", [])
-            if predictions:
-                return base64.b64decode(predictions[0]["bytesBase64Encoded"])
-    return None
-
-
-async def _send_generated_image(message, prompt: str) -> None:
-    if not prompt:
-        await message.reply_text("Вкажи що генерувати.")
-        return
-    try:
-        en_prompt = await _to_english_prompt(prompt)
-        log.info("Generating image, prompt=%r → en=%r", prompt, en_prompt)
-        img_bytes = await generate_image(en_prompt)
-        if img_bytes:
-            await message.reply_photo(img_bytes)
-        else:
-            await message.reply_text("Ліміт генерації вичерпано, спробуй пізніше.")
-    except Exception:
-        log.exception("Image generation failed")
-        await message.reply_text("Щось пішло не так при генерації.")
 
 
 async def _reply_with_ai(
@@ -683,6 +633,25 @@ async def _download_and_send(update: Update, url: str) -> None:
             pass  # URL wasn't a supported video — silently ignore
         except Exception:
             log.exception("Unexpected error for %s", url)
+
+
+async def _send_generated_image(message, prompt: str) -> None:
+    if not prompt:
+        await message.reply_text("Вкажи що генерувати.")
+        return
+    try:
+        from urllib.parse import quote
+        url = f"https://image.pollinations.ai/prompt/{quote(prompt)}?nologo=true"
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url)
+        if resp.status_code == 200:
+            await message.reply_photo(resp.content)
+        else:
+            log.error("Pollinations returned %s", resp.status_code)
+            await message.reply_text("Не вдалось згенерувати картинку, спробуй пізніше.")
+    except Exception:
+        log.exception("Image generation failed")
+        await message.reply_text("Щось пішло не так при генерації.")
 
 
 async def generate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
