@@ -842,6 +842,7 @@ def _page(title: str, body: str, active: str = "") -> str:
         ("Stats", "/admin", "stats"),
         ("Profiles", "/admin/profiles", "profiles"),
         ("Whitelist", "/admin/whitelist", "whitelist"),
+        ("Cache", "/admin/cache", "cache"),
     ]
     nav = "".join(
         f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
@@ -1168,6 +1169,63 @@ async def _web_whitelist_remove(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/whitelist?msg={_urlquote(f'Removed: {name}')}")
 
 
+async def _web_cache(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    msg = request.rel_url.query.get("msg", "")
+    alert = f"<div class='alert alert-success py-2'>{_he(msg)}</div>" if msg else ""
+    rows = ""
+    for url, file_id in list(VIDEO_CACHE.items()):
+        rows += (
+            f"<tr>"
+            f"<td><small><a href='{_he(url)}' target='_blank' rel='noopener' class='text-break'>{_he(url[:80] + ('…' if len(url) > 80 else ''))}</a></small><br>"
+            f"<span class='text-muted' style='font-size:0.75rem'>{_he(file_id[:24])}…</span></td>"
+            f"<td class='text-nowrap'>"
+            f"<form method='post' action='/admin/cache/remove' style='display:inline'>"
+            f"<input type='hidden' name='url' value='{_he(url)}'>"
+            f"<button class='btn btn-sm btn-outline-danger'>Remove</button>"
+            f"</form></td></tr>"
+        )
+    if not rows:
+        rows = "<tr><td colspan='2' class='text-muted py-3 text-center'>Cache is empty.</td></tr>"
+    body = f"""
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Video cache <span class="badge bg-secondary">{len(VIDEO_CACHE)}</span></h4>
+  <form method="post" action="/admin/cache/clear" onsubmit="return confirm('Clear all {len(VIDEO_CACHE)} cached entries?')">
+    <button class="btn btn-danger btn-sm" {'disabled' if not VIDEO_CACHE else ''}>Clear all</button>
+  </form>
+</div>
+{alert}
+<div class="card shadow-sm">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>URL / file_id</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+    return aio_web.Response(text=_page("Cache", body, active="cache"), content_type="text/html")
+
+
+async def _web_cache_remove(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    url = form.get("url", "").strip()
+    if url and url in VIDEO_CACHE:
+        VIDEO_CACHE.pop(url)
+        _save_video_cache()
+        return aio_web.HTTPFound(f"/admin/cache?msg={_urlquote('Removed: ' + url[:60])}")
+    return aio_web.HTTPFound("/admin/cache")
+
+
+async def _web_cache_clear(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    count = len(VIDEO_CACHE)
+    VIDEO_CACHE.clear()
+    _save_video_cache()
+    return aio_web.HTTPFound(f"/admin/cache?msg={_urlquote(f'Cleared {count} entries.')}")
+
+
 async def _start_web_server() -> None:
     web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
@@ -1181,6 +1239,9 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/whitelist", _web_whitelist)
     web_app.router.add_post("/admin/whitelist/add", _web_whitelist_add)
     web_app.router.add_post("/admin/whitelist/remove", _web_whitelist_remove)
+    web_app.router.add_get("/admin/cache", _web_cache)
+    web_app.router.add_post("/admin/cache/remove", _web_cache_remove)
+    web_app.router.add_post("/admin/cache/clear", _web_cache_clear)
     runner = aio_web.AppRunner(web_app)
     await runner.setup()
     await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
