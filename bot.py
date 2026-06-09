@@ -591,7 +591,7 @@ async def _download_and_send(update: Update, url: str) -> None:
             # Allow carousels (multiple photos/videos in one post) and use a
             # format selector that works for both video and image posts.
             opts["noplaylist"] = False
-            opts["format"] = "best[height<=720]/best"
+            opts["format"] = "best[height<=720][ext=mp4]/best[height<=720]/best[ext=jpg]/best[ext=jpeg]/best[ext=png]/best[ext=webp]/best"
 
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
