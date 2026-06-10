@@ -913,6 +913,25 @@ _login_failures: dict[str, list[float]] = {}  # ip -> list of failure timestamps
 _LOGIN_MAX_ATTEMPTS = 10
 _LOGIN_LOCKOUT_SECONDS = 3600
 
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+_MSG_LINK_RE = re.compile(r"t\.me/c/(\d+)/(\d+)")
+
+
+def _parse_message_link(link: str) -> tuple[int, int] | None:
+    m = _MSG_LINK_RE.search(link.strip())
+    if not m:
+        return None
+    internal_id, message_id = m.groups()
+    return int(f"-100{internal_id}"), int(message_id)
+
+
+async def _tg_call(method: str, **params) -> None:
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(f"{TELEGRAM_API}/{method}", json=params)
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(data.get("description", "unknown error"))
+
 
 def _page(title: str, body: str, active: str = "") -> str:
     links = [
@@ -920,6 +939,7 @@ def _page(title: str, body: str, active: str = "") -> str:
         ("Profiles", "/admin/profiles", "profiles"),
         ("Whitelist", "/admin/whitelist", "whitelist"),
         ("Cache", "/admin/cache", "cache"),
+        ("Messages", "/admin/messages", "messages"),
     ]
     nav = "".join(
         f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
@@ -1303,6 +1323,87 @@ async def _web_cache_clear(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/cache?msg={_urlquote(f'Cleared {count} entries.')}")
 
 
+async def _web_messages(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    msg = request.rel_url.query.get("msg", "")
+    error = request.rel_url.query.get("error", "")
+    alert = ""
+    if msg:
+        alert += f"<div class='alert alert-success py-2'>{_he(msg)}</div>"
+    if error:
+        alert += f"<div class='alert alert-danger py-2'>{_he(error)}</div>"
+    body = f"""
+<h4 class="mb-3">Messages</h4>
+{alert}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">Delete a message</div>
+  <div class="card-body">
+    <form method="post" action="/admin/messages/delete">
+      <div class="mb-2">
+        <label class="form-label small">Telegram message link</label>
+        <input type="text" name="link" class="form-control form-control-sm" placeholder="https://t.me/c/.../...">
+      </div>
+      <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this message?')">Delete</button>
+    </form>
+    <div class="form-text">Works on any message — the bot is an admin in the group.</div>
+  </div>
+</div>
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Edit a message</div>
+  <div class="card-body">
+    <form method="post" action="/admin/messages/edit">
+      <div class="mb-2">
+        <label class="form-label small">Telegram message link</label>
+        <input type="text" name="link" class="form-control form-control-sm" placeholder="https://t.me/c/.../...">
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">New text</label>
+        <textarea name="text" class="form-control form-control-sm" rows="4"></textarea>
+      </div>
+      <button class="btn btn-sm btn-dark">Save</button>
+    </form>
+    <div class="form-text">Telegram only allows editing messages the bot itself sent.</div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Messages", body, active="messages"), content_type="text/html")
+
+
+async def _web_messages_delete(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    parsed = _parse_message_link(form.get("link", ""))
+    if not parsed:
+        return aio_web.HTTPFound(f"/admin/messages?error={_urlquote('Invalid message link.')}")
+    chat_id, message_id = parsed
+    try:
+        await _tg_call("deleteMessage", chat_id=chat_id, message_id=message_id)
+    except Exception as exc:
+        return aio_web.HTTPFound(f"/admin/messages?error={_urlquote(f'Delete failed: {exc}')}")
+    BOT_MESSAGE_IDS.discard((chat_id, message_id))
+    _save_bot_message_ids()
+    return aio_web.HTTPFound(f"/admin/messages?msg={_urlquote(f'Deleted message {message_id}.')}")
+
+
+async def _web_messages_edit(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    parsed = _parse_message_link(form.get("link", ""))
+    text = form.get("text", "").strip()
+    if not parsed:
+        return aio_web.HTTPFound(f"/admin/messages?error={_urlquote('Invalid message link.')}")
+    if not text:
+        return aio_web.HTTPFound(f"/admin/messages?error={_urlquote('New text cannot be empty.')}")
+    chat_id, message_id = parsed
+    try:
+        await _tg_call("editMessageText", chat_id=chat_id, message_id=message_id, text=text)
+    except Exception as exc:
+        return aio_web.HTTPFound(f"/admin/messages?error={_urlquote(f'Edit failed: {exc}')}")
+    return aio_web.HTTPFound(f"/admin/messages?msg={_urlquote(f'Edited message {message_id}.')}")
+
+
 async def _start_web_server() -> None:
     web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
@@ -1319,6 +1420,9 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/cache", _web_cache)
     web_app.router.add_post("/admin/cache/remove", _web_cache_remove)
     web_app.router.add_post("/admin/cache/clear", _web_cache_clear)
+    web_app.router.add_get("/admin/messages", _web_messages)
+    web_app.router.add_post("/admin/messages/delete", _web_messages_delete)
+    web_app.router.add_post("/admin/messages/edit", _web_messages_edit)
     runner = aio_web.AppRunner(web_app)
     await runner.setup()
     await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
