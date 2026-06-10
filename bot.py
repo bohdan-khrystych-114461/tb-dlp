@@ -337,6 +337,23 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     CHAT_HISTORY = {}
 
+# Curated examples of "their message -> your comeback" for fight-back replies.
+# Fed to the AI as few-shot context so it learns the desired roast style from
+# real examples instead of just abstract rules. Managed via the admin panel.
+COMEBACK_EXAMPLES_FILE = "/cookies/comeback_examples.json"
+COMEBACK_EXAMPLES_PER_REPLY = 3
+try:
+    COMEBACK_EXAMPLES: list[dict] = json.loads(Path(COMEBACK_EXAMPLES_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    COMEBACK_EXAMPLES = []
+
+
+def _save_comeback_examples() -> None:
+    try:
+        Path(COMEBACK_EXAMPLES_FILE).write_text(json.dumps(COMEBACK_EXAMPLES))
+    except OSError:
+        log.exception("Failed to persist comeback examples")
+
 # Small chance the bot jumps in without being @mentioned — makes it feel like
 # a real group member rather than a tool that only responds on command.
 UNPROMPTED_CHANCE = 0.08        # base 8% per eligible message
@@ -501,6 +518,16 @@ async def _reply_with_ai(
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
+    elif COMEBACK_EXAMPLES:
+        sample = random.sample(COMEBACK_EXAMPLES, min(COMEBACK_EXAMPLES_PER_REPLY, len(COMEBACK_EXAMPLES)))
+        examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
+        examples_note = (
+            "Examples of how you've nailed it when clapping back at trolling/"
+            "insults before — match this style and sharpness ONLY if the "
+            "current message is similarly hostile toward you, otherwise "
+            "ignore these:\n" + examples_text
+        )
+        chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
 
     lang = _detect_reply_language(prompt)
     if lang == "ru":
@@ -940,6 +967,7 @@ def _page(title: str, body: str, active: str = "") -> str:
         ("Whitelist", "/admin/whitelist", "whitelist"),
         ("Cache", "/admin/cache", "cache"),
         ("Messages", "/admin/messages", "messages"),
+        ("Comebacks", "/admin/comebacks", "comebacks"),
     ]
     nav = "".join(
         f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
@@ -1404,6 +1432,79 @@ async def _web_messages_edit(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/messages?msg={_urlquote(f'Edited message {message_id}.')}")
 
 
+async def _web_comebacks(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    msg = request.rel_url.query.get("msg", "")
+    alert = f"<div class='alert alert-success py-2'>{_he(msg)}</div>" if msg else ""
+    rows = ""
+    for i, ex in enumerate(COMEBACK_EXAMPLES):
+        rows += (
+            f"<tr><td><small>{_he(ex['trigger'])}</small></td>"
+            f"<td><small>{_he(ex['reply'])}</small></td>"
+            f"<td class='text-nowrap'>"
+            f"<form method='post' action='/admin/comebacks/remove' style='display:inline'>"
+            f"<input type='hidden' name='index' value='{i}'>"
+            f"<button class='btn btn-sm btn-outline-danger'>Remove</button>"
+            f"</form></td></tr>"
+        )
+    if not rows:
+        rows = "<tr><td colspan='3' class='text-muted py-3 text-center'>No examples yet.</td></tr>"
+    body = f"""
+<h4 class="mb-3">Comeback examples <span class="badge bg-secondary">{len(COMEBACK_EXAMPLES)}</span></h4>
+{alert}
+<div class="card shadow-sm mb-4">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Their message</th><th>Bot's reply</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Add example</div>
+  <div class="card-body">
+    <form method="post" action="/admin/comebacks/add">
+      <div class="mb-2">
+        <label class="form-label small">Their message (the troll/insult)</label>
+        <textarea name="trigger" class="form-control form-control-sm" rows="2" required></textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">Ideal comeback</label>
+        <textarea name="reply" class="form-control form-control-sm" rows="2" required></textarea>
+      </div>
+      <button class="btn btn-sm btn-dark">Add</button>
+    </form>
+    <div class="form-text">A few of these are shown to the AI as style examples whenever someone trolls/insults the bot.</div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Comebacks", body, active="comebacks"), content_type="text/html")
+
+
+async def _web_comebacks_add(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    trigger = form.get("trigger", "").strip()
+    reply = form.get("reply", "").strip()
+    if trigger and reply:
+        COMEBACK_EXAMPLES.append({"trigger": trigger, "reply": reply})
+        _save_comeback_examples()
+        return aio_web.HTTPFound(f"/admin/comebacks?msg={_urlquote('Example added.')}")
+    return aio_web.HTTPFound("/admin/comebacks")
+
+
+async def _web_comebacks_remove(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    try:
+        index = int(form.get("index", ""))
+        COMEBACK_EXAMPLES.pop(index)
+    except (ValueError, IndexError):
+        return aio_web.HTTPFound("/admin/comebacks")
+    _save_comeback_examples()
+    return aio_web.HTTPFound(f"/admin/comebacks?msg={_urlquote('Example removed.')}")
+
+
 async def _start_web_server() -> None:
     web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
@@ -1423,6 +1524,9 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/messages", _web_messages)
     web_app.router.add_post("/admin/messages/delete", _web_messages_delete)
     web_app.router.add_post("/admin/messages/edit", _web_messages_edit)
+    web_app.router.add_get("/admin/comebacks", _web_comebacks)
+    web_app.router.add_post("/admin/comebacks/add", _web_comebacks_add)
+    web_app.router.add_post("/admin/comebacks/remove", _web_comebacks_remove)
     runner = aio_web.AppRunner(web_app)
     await runner.setup()
     await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
