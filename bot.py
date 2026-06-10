@@ -440,6 +440,23 @@ def _build_chat_context(chat_id: int) -> str:
     return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)
 
 
+# Ukrainian-only Cyrillic letters — і, ї, є, ґ — never appear in Russian.
+# Despite the system prompt's language-matching instructions, the model keeps
+# drifting into Ukrainian (e.g. matching the language of chat history or its
+# own previous reply instead of the message it's actually responding to). A
+# deterministic check on the triggering message is far more reliable than
+# asking the model to judge it amid a long prompt.
+_UKRAINIAN_ONLY_CHARS = set("іїєґІЇЄҐ")
+
+
+def _detect_reply_language(text: str) -> str | None:
+    cyrillic = sum(1 for ch in text if "Ѐ" <= ch <= "ӿ")
+    if cyrillic < 3:
+        return None
+    ukrainian = sum(1 for ch in text if ch in _UKRAINIAN_ONLY_CHARS)
+    return "uk" if ukrainian >= 2 else "ru"
+
+
 async def _update_profile(user_id: int, name: str, username: str | None, *, force: bool = False) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if not force and len(messages) < PROFILE_UPDATE_THRESHOLD:
@@ -484,6 +501,25 @@ async def _reply_with_ai(
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
+
+    lang = _detect_reply_language(prompt)
+    if lang == "ru":
+        lang_note = (
+            "LANGUAGE OVERRIDE (highest priority — overrides chat history, "
+            "your own previous replies, and any other language cue): the "
+            "message you're replying to right now is in Russian. Reply "
+            "entirely in Russian, not Ukrainian."
+        )
+    elif lang == "uk":
+        lang_note = (
+            "LANGUAGE OVERRIDE (highest priority): the message you're "
+            "replying to right now is substantially in Ukrainian. Reply in "
+            "Ukrainian."
+        )
+    else:
+        lang_note = None
+    if lang_note:
+        chat_context = (chat_context + "\n\n" + lang_note).strip() if chat_context else lang_note
 
     image_bytes: bytes | None = None
     photo_list = message.photo or (
