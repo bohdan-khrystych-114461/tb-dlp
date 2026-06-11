@@ -370,6 +370,25 @@ def _save_comeback_examples() -> None:
     except OSError:
         log.exception("Failed to persist comeback examples")
 
+
+# Standalone savage words/expressions (no situational context) the AI can
+# draw from for vocabulary/flavor when clapping back. Lighter to curate than
+# COMEBACK_EXAMPLES — just drop in good lines as you encounter them. Managed
+# via the admin panel.
+COMEBACK_PHRASES_FILE = "/cookies/comeback_phrases.json"
+COMEBACK_PHRASES_PER_REPLY = 5
+try:
+    COMEBACK_PHRASES: list[str] = json.loads(Path(COMEBACK_PHRASES_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    COMEBACK_PHRASES = []
+
+
+def _save_comeback_phrases() -> None:
+    try:
+        Path(COMEBACK_PHRASES_FILE).write_text(json.dumps(COMEBACK_PHRASES))
+    except OSError:
+        log.exception("Failed to persist comeback phrases")
+
 # Small chance the bot jumps in without being @mentioned — makes it feel like
 # a real group member rather than a tool that only responds on command.
 UNPROMPTED_CHANCE = 0.08        # base 8% per eligible message
@@ -517,16 +536,29 @@ async def _reply_with_ai(
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
-    elif COMEBACK_EXAMPLES:
-        sample = random.sample(COMEBACK_EXAMPLES, min(COMEBACK_EXAMPLES_PER_REPLY, len(COMEBACK_EXAMPLES)))
-        examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
-        examples_note = (
-            "Examples of how you've nailed it when clapping back at trolling/"
-            "insults before — match this style and sharpness ONLY if the "
-            "current message is similarly hostile toward you, otherwise "
-            "ignore these:\n" + examples_text
-        )
-        chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
+    else:
+        if COMEBACK_EXAMPLES:
+            sample = random.sample(COMEBACK_EXAMPLES, min(COMEBACK_EXAMPLES_PER_REPLY, len(COMEBACK_EXAMPLES)))
+            examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
+            examples_note = (
+                "Examples of how you've nailed it when clapping back at trolling/"
+                "insults before — match this style and sharpness ONLY if the "
+                "current message is similarly hostile toward you, otherwise "
+                "ignore these:\n" + examples_text
+            )
+            chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
+
+        if COMEBACK_PHRASES:
+            phrase_sample = random.sample(COMEBACK_PHRASES, min(COMEBACK_PHRASES_PER_REPLY, len(COMEBACK_PHRASES)))
+            phrases_text = "\n".join(f"- {p}" for p in phrase_sample)
+            phrases_note = (
+                "Some words/expressions from your usual vocabulary you can pull "
+                "from when clapping back — use one ONLY if it actually fits what "
+                "you're saying and the message is hostile toward you, adapt it "
+                "to the context, don't force it in or repeat the same one every "
+                "time:\n" + phrases_text
+            )
+            chat_context = (chat_context + "\n\n" + phrases_note).strip() if chat_context else phrases_note
 
     image_bytes: bytes | None = None
     photo_list = message.photo or (
@@ -961,6 +993,7 @@ def _page(title: str, body: str, active: str = "") -> str:
         ("Cache", "/admin/cache", "cache"),
         ("Messages", "/admin/messages", "messages"),
         ("Comebacks", "/admin/comebacks", "comebacks"),
+        ("Phrases", "/admin/phrases", "phrases"),
     ]
     nav = "".join(
         f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
@@ -1515,6 +1548,72 @@ async def _web_comebacks_remove(request: aio_web.Request) -> aio_web.Response:
     return aio_web.HTTPFound(f"/admin/comebacks?msg={_urlquote('Example removed.')}")
 
 
+async def _web_phrases(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    msg = request.rel_url.query.get("msg", "")
+    alert = f"<div class='alert alert-success py-2'>{_he(msg)}</div>" if msg else ""
+    rows = ""
+    for i, phrase in enumerate(COMEBACK_PHRASES):
+        rows += (
+            f"<tr><td><small>{_he(phrase)}</small></td>"
+            f"<td class='text-nowrap'>"
+            f"<form method='post' action='/admin/phrases/remove' style='display:inline'>"
+            f"<input type='hidden' name='index' value='{i}'>"
+            f"<button class='btn btn-sm btn-outline-danger'>Remove</button>"
+            f"</form></td></tr>"
+        )
+    if not rows:
+        rows = "<tr><td colspan='2' class='text-muted py-3 text-center'>No phrases yet.</td></tr>"
+    body = f"""
+<h4 class="mb-3">Comeback phrases <span class="badge bg-secondary">{len(COMEBACK_PHRASES)}</span></h4>
+{alert}
+<div class="card shadow-sm mb-4">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>Phrase</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Add phrase</div>
+  <div class="card-body">
+    <form method="post" action="/admin/phrases/add">
+      <div class="mb-2">
+        <textarea name="phrase" class="form-control form-control-sm" rows="2" required placeholder="e.g. сиди мовчи, доки дорослі говорять"></textarea>
+      </div>
+      <button class="btn btn-sm btn-dark">Add</button>
+    </form>
+    <div class="form-text">A few of these are shown to the AI as vocabulary it can draw from when clapping back at trolls/insults — adapted to context, not used verbatim every time.</div>
+  </div>
+</div>"""
+    return aio_web.Response(text=_page("Phrases", body, active="phrases"), content_type="text/html")
+
+
+async def _web_phrases_add(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    phrase = form.get("phrase", "").strip()
+    if phrase:
+        COMEBACK_PHRASES.append(phrase)
+        _save_comeback_phrases()
+        return aio_web.HTTPFound(f"/admin/phrases?msg={_urlquote('Phrase added.')}")
+    return aio_web.HTTPFound("/admin/phrases")
+
+
+async def _web_phrases_remove(request: aio_web.Request) -> aio_web.Response:
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    try:
+        index = int(form.get("index", ""))
+        COMEBACK_PHRASES.pop(index)
+    except (ValueError, IndexError):
+        return aio_web.HTTPFound("/admin/phrases")
+    _save_comeback_phrases()
+    return aio_web.HTTPFound(f"/admin/phrases?msg={_urlquote('Phrase removed.')}")
+
+
 async def _start_web_server() -> None:
     web_app = aio_web.Application(middlewares=[_token_middleware])
     web_app.router.add_get("/", lambda _r: aio_web.HTTPFound("/admin"))
@@ -1538,6 +1637,9 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/admin/comebacks", _web_comebacks)
     web_app.router.add_post("/admin/comebacks/add", _web_comebacks_add)
     web_app.router.add_post("/admin/comebacks/remove", _web_comebacks_remove)
+    web_app.router.add_get("/admin/phrases", _web_phrases)
+    web_app.router.add_post("/admin/phrases/add", _web_phrases_add)
+    web_app.router.add_post("/admin/phrases/remove", _web_phrases_remove)
     runner = aio_web.AppRunner(web_app)
     await runner.setup()
     await aio_web.TCPSite(runner, "0.0.0.0", _WEB_PORT).start()
