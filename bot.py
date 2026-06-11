@@ -83,6 +83,22 @@ def _is_admin_dm(message) -> bool:
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Toggleable from the admin panel — when off, the bot stays silent (no AI
+# replies to mentions, replies, or unprompted chime-ins) but video downloads
+# keep working.
+AI_ENABLED_FILE = "/cookies/ai_enabled.json"
+try:
+    AI_ENABLED: bool = json.loads(Path(AI_ENABLED_FILE).read_text())
+except (FileNotFoundError, json.JSONDecodeError):
+    AI_ENABLED = True
+
+
+def _save_ai_enabled() -> None:
+    try:
+        Path(AI_ENABLED_FILE).write_text(json.dumps(AI_ENABLED))
+    except OSError:
+        log.exception("Failed to persist AI enabled flag")
+
 # Try the newest/sharpest model first, then fall back to others with looser
 # free-tier daily quotas if it's 429ing — only once *all* of them are
 # exhausted do we give up and send a "перекур" reply (see RATE_LIMIT_*).
@@ -96,12 +112,6 @@ GEMINI_MODELS = [
 
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
-    "Reply in the same language the person used to address you (Ukrainian, "
-    "Russian, English, etc.) — match them. Surzhyk / mixed Russian-Ukrainian "
-    "slang (e.g. 'шо', 'тіки', 'чо') counts as Russian, not Ukrainian — only "
-    "treat a message as Ukrainian if it's substantially in Ukrainian (full "
-    "Ukrainian words and grammar throughout, not just one slang particle). "
-    "If it's ambiguous, mixed, or you can't tell, default to Russian. "
     "Your default tone is genuine and relaxed. When someone shares something "
     "— a photo, a thought, a question — engage with it honestly. "
     "If someone shows you a photo of a squirrel and asks 'як тобі?', just "
@@ -457,23 +467,6 @@ def _build_chat_context(chat_id: int) -> str:
     return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)
 
 
-# Ukrainian-only Cyrillic letters — і, ї, є, ґ — never appear in Russian.
-# Despite the system prompt's language-matching instructions, the model keeps
-# drifting into Ukrainian (e.g. matching the language of chat history or its
-# own previous reply instead of the message it's actually responding to). A
-# deterministic check on the triggering message is far more reliable than
-# asking the model to judge it amid a long prompt.
-_UKRAINIAN_ONLY_CHARS = set("іїєґІЇЄҐ")
-
-
-def _detect_reply_language(text: str) -> str | None:
-    cyrillic = sum(1 for ch in text if "Ѐ" <= ch <= "ӿ")
-    if cyrillic < 3:
-        return None
-    ukrainian = sum(1 for ch in text if ch in _UKRAINIAN_ONLY_CHARS)
-    return "uk" if ukrainian >= 2 else "ru"
-
-
 async def _update_profile(user_id: int, name: str, username: str | None, *, force: bool = False) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if not force and len(messages) < PROFILE_UPDATE_THRESHOLD:
@@ -528,25 +521,6 @@ async def _reply_with_ai(
             "ignore these:\n" + examples_text
         )
         chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
-
-    lang = _detect_reply_language(prompt)
-    if lang == "ru":
-        lang_note = (
-            "LANGUAGE OVERRIDE (highest priority — overrides chat history, "
-            "your own previous replies, and any other language cue): the "
-            "message you're replying to right now is in Russian. Reply "
-            "entirely in Russian, not Ukrainian."
-        )
-    elif lang == "uk":
-        lang_note = (
-            "LANGUAGE OVERRIDE (highest priority): the message you're "
-            "replying to right now is substantially in Ukrainian. Reply in "
-            "Ukrainian."
-        )
-    else:
-        lang_note = None
-    if lang_note:
-        chat_context = (chat_context + "\n\n" + lang_note).strip() if chat_context else lang_note
 
     image_bytes: bytes | None = None
     photo_list = message.photo or (
@@ -621,7 +595,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if user and not user.is_bot:
         _append_to_chat_history(message.chat_id, user.full_name, text, is_bot=False)
-        if GEMINI_API_KEY:
+        if GEMINI_API_KEY and AI_ENABLED:
             USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             _save_message_buffers()
             asyncio.create_task(_update_profile(user.id, user.full_name, user.username))
@@ -641,13 +615,14 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 await handle_url(update, url, force=True)
             return
 
-    if GEMINI_API_KEY and bot_username and user and f"@{bot_username}" in text:
+    if GEMINI_API_KEY and AI_ENABLED and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
         await _reply_with_ai(message, prompt, user)
         return
 
     if (
         GEMINI_API_KEY
+        and AI_ENABLED
         and user
         and message.reply_to_message
         and message.reply_to_message.from_user
@@ -658,6 +633,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if (
         GEMINI_API_KEY
+        and AI_ENABLED
         and user
         and not user.is_bot
         and len(text) >= 10
@@ -1061,8 +1037,16 @@ async def _web_stats(request: aio_web.Request) -> aio_web.Response:
         for cid, d in sorted(by_chat.items(), key=lambda kv: -kv[1].get("total", 0))
     ) or "<tr><td colspan='3' class='text-muted'>No data yet.</td></tr>"
 
+    ai_status = "ON" if AI_ENABLED else "OFF"
+    ai_btn_class = "btn-outline-danger" if AI_ENABLED else "btn-outline-success"
+    ai_action = "off" if AI_ENABLED else "on"
     body = f"""
-<h4 class="mb-4">Stats</h4>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="mb-0">Stats</h4>
+  <form method="post" action="/admin/ai-toggle">
+    <button class="btn btn-sm {ai_btn_class}">AI bot: {ai_status} (turn {ai_action})</button>
+  </form>
+</div>
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{total}</div><div class="text-muted small">Videos sent</div></div></div></div>
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{cache_hits}</div><div class="text-muted small">From cache</div></div></div></div>
@@ -1090,6 +1074,15 @@ async def _web_stats(request: aio_web.Request) -> aio_web.Response:
   </div>
 </div>"""
     return aio_web.Response(text=_page("Stats", body, active="stats"), content_type="text/html")
+
+
+async def _web_ai_toggle(request: aio_web.Request) -> aio_web.Response:
+    global AI_ENABLED
+    if not _auth(request):
+        return aio_web.HTTPFound("/login")
+    AI_ENABLED = not AI_ENABLED
+    _save_ai_enabled()
+    return aio_web.HTTPFound("/admin")
 
 
 async def _web_profiles(request: aio_web.Request) -> aio_web.Response:
@@ -1511,6 +1504,7 @@ async def _start_web_server() -> None:
     web_app.router.add_get("/login", _web_login_get)
     web_app.router.add_post("/login", _web_login_post)
     web_app.router.add_get("/admin", _web_stats)
+    web_app.router.add_post("/admin/ai-toggle", _web_ai_toggle)
     web_app.router.add_get("/admin/profiles", _web_profiles)
     web_app.router.add_get("/admin/profiles/{user_id}/edit", _web_edit_get)
     web_app.router.add_post("/admin/profiles/{user_id}/edit", _web_edit_post)
