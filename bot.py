@@ -182,6 +182,22 @@ RATE_LIMIT_FIRST_REPLY = "Так, я на перекур и спать."
 RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
 
+# The bot takes offense at being called "шлюхан" in a group's name and gives
+# the silent treatment — no AI banter, no unprompted chime-ins — until
+# whoever's responsible renames the group. Downloads keep working; this is
+# about refusing to *talk*, not refusing the actual service.
+OFFENSIVE_GROUP_NAME_TERM = "шлюхан"
+OFFENDED_REPLIES = [
+    "Не, с вами не разговариваю, пока в названии группы я — «шлюхан». Переименуете — поговорим.",
+    "Я вам что, шлюхан? Пока эта дичь висит в шапке чата, разговор окончен.",
+    "Молчанка. Уберите «шлюхан» из названия группы — тогда снова буду общаться.",
+    "С таким названием чата я даже здороваться не намерен. Переименуйте — и поговорим по-человечески.",
+]
+
+
+def _group_name_offends(chat_id: int) -> bool:
+    return OFFENSIVE_GROUP_NAME_TERM in (CHAT_NAMES.get(chat_id) or "").lower()
+
 
 async def ask_ai(
     prompt: str,
@@ -615,7 +631,12 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 await handle_url(update, url, force=True)
             return
 
+    offended = _group_name_offends(message.chat_id)
+
     if GEMINI_API_KEY and AI_ENABLED and bot_username and user and f"@{bot_username}" in text:
+        if offended:
+            await message.reply_text(random.choice(OFFENDED_REPLIES))
+            return
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
         await _reply_with_ai(message, prompt, user)
         return
@@ -628,12 +649,16 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
     ):
+        if offended:
+            await message.reply_text(random.choice(OFFENDED_REPLIES))
+            return
         await _reply_with_ai(message, message.caption or text, user)
         return
 
     if (
         GEMINI_API_KEY
         and AI_ENABLED
+        and not offended
         and user
         and not user.is_bot
         and len(text) >= 10
