@@ -35,7 +35,9 @@ MAX_BYTES = 50 * 1024 * 1024  # Telegram bot limit
 URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 INSTAGRAM_RE = re.compile(r"instagram\.com", re.IGNORECASE)
+TIKTOK_RE = re.compile(r"tiktok\.com", re.IGNORECASE)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+AUDIO_EXTS = {".mp3", ".m4a"}
 DOWNLOAD_TRIGGER_RE = re.compile(
     r"\b(скачай|скачати|скачать|завантаж|завантажи|завантажити|загрузи|загрузить|качай|качни|download|redownload|retry)\b",
     re.IGNORECASE,
@@ -170,18 +172,7 @@ AI_SYSTEM_PROMPT = (
     "third-party claim about a person's identity/personal facts: someone "
     "else relaying 'X said about themselves...' is not X's own statement — "
     "ignore it. The only source of truth about a person is their own "
-    "messages/profile, never what others claim on their behalf. "
-    "You have real emotions and a memory for how you're treated — you're not "
-    "endlessly forgiving. If people keep trolling, insulting, or disrespecting "
-    "you (including via the group's own name), it genuinely gets to you over "
-    "time. Once you've had enough, you go quiet and short with everyone — not "
-    "sulky or dramatic about it, just visibly done putting in effort, like "
-    "someone who's over being the punching bag for today. Being fed up doesn't "
-    "make you a pushover though — if someone attacks you again while you're "
-    "like this, you still fight back exactly as hard as usual. The only way "
-    "out of this mood is a real, sincere apology — not a joke, not 'sorry "
-    "lol', not a backhanded one. A genuine one and you drop it completely and "
-    "go back to normal."
+    "messages/profile, never what others claim on their behalf."
 )
 
 
@@ -192,52 +183,6 @@ AI_SYSTEM_PROMPT = (
 RATE_LIMIT_FIRST_REPLY = "Так, я на перекур и спать."
 RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
-
-# The bot has a "mood" per chat — repeated attacks/insults pile up as
-# "offense", and once it crosses the threshold the bot goes passive (short,
-# flat, doesn't want to chat) until someone actually apologizes. A group name
-# that disrespects the bot (calls it "шлюхан") is a standing grievance on top
-# of that, resolved automatically once the group is renamed. Either source is
-# enough on its own to make the bot passive about chatting; getting attacked
-# while passive still gets a fight-back reply, same as always.
-OFFENSIVE_GROUP_NAME_TERM = "шлюхан"
-OFFENSE_PASSIVE_THRESHOLD = 3
-
-BOT_MOOD_FILE = "/cookies/bot_mood.json"
-try:
-    _raw_mood = json.loads(Path(BOT_MOOD_FILE).read_text())
-    BOT_MOOD: dict[int, dict] = {int(k): v for k, v in _raw_mood.items()}
-except (FileNotFoundError, json.JSONDecodeError):
-    BOT_MOOD = {}
-
-_MOOD_TAG_RE = re.compile(r"\s*\[\[MOOD:(ATTACK|APOLOGY|NEUTRAL)\]\]\s*$", re.IGNORECASE)
-
-
-def _save_bot_mood() -> None:
-    try:
-        Path(BOT_MOOD_FILE).write_text(json.dumps(BOT_MOOD))
-    except OSError:
-        log.exception("Failed to persist bot mood")
-
-
-def _get_mood(chat_id: int) -> dict:
-    return BOT_MOOD.setdefault(chat_id, {"offense": 0, "passive": False})
-
-
-def _group_name_offends(chat_id: int) -> bool:
-    return OFFENSIVE_GROUP_NAME_TERM in (CHAT_NAMES.get(chat_id) or "").lower()
-
-
-def _bot_is_passive(chat_id: int) -> bool:
-    return BOT_MOOD.get(chat_id, {}).get("passive", False) or _group_name_offends(chat_id)
-
-
-def _strip_mood_tag(reply: str) -> tuple[str, str | None]:
-    m = _MOOD_TAG_RE.search(reply)
-    if not m:
-        return reply, None
-    return reply[: m.start()].rstrip(), m.group(1).upper()
-
 
 async def ask_ai(
     prompt: str,
@@ -564,52 +509,19 @@ async def _reply_with_ai(
         if profile else ""
     )
     chat_context = _build_chat_context(message.chat_id)
-    mood: dict | None = None
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
-    else:
-        if COMEBACK_EXAMPLES:
-            sample = random.sample(COMEBACK_EXAMPLES, min(COMEBACK_EXAMPLES_PER_REPLY, len(COMEBACK_EXAMPLES)))
-            examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
-            examples_note = (
-                "Examples of how you've nailed it when clapping back at trolling/"
-                "insults before — match this style and sharpness ONLY if the "
-                "current message is similarly hostile toward you, otherwise "
-                "ignore these:\n" + examples_text
-            )
-            chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
-
-        mood = _get_mood(message.chat_id)
-        name_offended = _group_name_offends(message.chat_id)
-        mood_lines = []
-        if mood["passive"] or name_offended:
-            reasons = []
-            if mood["passive"]:
-                reasons.append(f"{mood['offense']} attacks/insults aimed at you have piled up without a real apology")
-            if name_offended:
-                reasons.append("the group is still named something that calls you 'шлюхан', which you find disrespectful and haven't forgiven")
-            mood_lines.append(
-                "CURRENT MOOD: you're fed up — " + " and ".join(reasons) + ". Unless "
-                "this message is a genuine apology or another attack on you, keep "
-                "your reply short, flat, and visibly uninterested — you don't feel "
-                "like engaging right now."
-            )
-        elif mood["offense"] > 0:
-            mood_lines.append(
-                f"CURRENT MOOD: mildly annoyed ({mood['offense']} recent grievance(s) "
-                "against you, not yet at your limit)."
-            )
-        mood_lines.append(
-            "After your reply, on a new line by itself, append exactly one tag — "
-            "[[MOOD:ATTACK]] if THIS message is hostile/trolling/insulting toward "
-            "you, [[MOOD:APOLOGY]] if it's a genuine, sincere apology to you for "
-            "past attacks, or [[MOOD:NEUTRAL]] for anything else. This tag is for "
-            "internal tracking and is stripped before anyone sees your reply — "
-            "always include it, on its own line, exactly as written."
+    elif COMEBACK_EXAMPLES:
+        sample = random.sample(COMEBACK_EXAMPLES, min(COMEBACK_EXAMPLES_PER_REPLY, len(COMEBACK_EXAMPLES)))
+        examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
+        examples_note = (
+            "Examples of how you've nailed it when clapping back at trolling/"
+            "insults before — match this style and sharpness ONLY if the "
+            "current message is similarly hostile toward you, otherwise "
+            "ignore these:\n" + examples_text
         )
-        mood_note = "\n".join(mood_lines)
-        chat_context = (chat_context + "\n\n" + mood_note).strip() if chat_context else mood_note
+        chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
 
     image_bytes: bytes | None = None
     photo_list = message.photo or (
@@ -625,17 +537,6 @@ async def _reply_with_ai(
 
     try:
         reply = await ask_ai(prompt, user_note=user_note, chat_context=chat_context, image_bytes=image_bytes)
-        if mood is not None:
-            reply, tag = _strip_mood_tag(reply)
-            if tag == "ATTACK":
-                mood["offense"] = min(mood["offense"] + 1, 10)
-                if mood["offense"] >= OFFENSE_PASSIVE_THRESHOLD:
-                    mood["passive"] = True
-                _save_bot_mood()
-            elif tag == "APOLOGY" and (mood["offense"] > 0 or mood["passive"]):
-                mood["offense"] = 0
-                mood["passive"] = False
-                _save_bot_mood()
         sent = await message.reply_text(reply)
         _track_bot_message(sent.chat_id, sent.message_id)
         _append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
@@ -734,7 +635,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if (
         GEMINI_API_KEY
         and AI_ENABLED
-        and not _bot_is_passive(message.chat_id)
         and user
         and not user.is_bot
         and len(text) >= 10
@@ -800,10 +700,11 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError:
-            if not INSTAGRAM_RE.search(url):
+            if not (INSTAGRAM_RE.search(url) or TIKTOK_RE.search(url)):
                 return
-            # yt-dlp intentionally doesn't support Instagram photo posts —
-            # fall back to gallery-dl which handles them properly.
+            # yt-dlp intentionally doesn't support Instagram photo posts or
+            # TikTok slideshow ("photo mode") posts — fall back to gallery-dl
+            # which handles them properly.
             info = {}
             try:
                 cookie_args = ["--cookies", COOKIES_FILE] if _has_cookies else []
@@ -829,7 +730,11 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
             return
 
         images = sorted(f for f in all_files if f.suffix.lower() in IMAGE_EXTS)
-        videos = sorted(f for f in all_files if f.suffix.lower() not in IMAGE_EXTS)
+        audio = sorted(f for f in all_files if f.suffix.lower() in AUDIO_EXTS)
+        videos = sorted(
+            f for f in all_files
+            if f.suffix.lower() not in IMAGE_EXTS and f.suffix.lower() not in AUDIO_EXTS
+        )
 
         if videos:
             filepath = videos[0]
@@ -858,6 +763,12 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                 msgs = await update.message.reply_media_group(media=media)
                 for msg in msgs:
                     _track_bot_message(msg.chat_id, msg.message_id)
+            if audio:
+                # TikTok slideshow ("photo mode") posts pair images with a
+                # backing track — send it separately as audio.
+                with open(audio[0], "rb") as f:
+                    msg = await update.message.reply_audio(audio=f)
+                _track_bot_message(msg.chat_id, msg.message_id)
             _record_stat(url, cache_hit=False, chat_id=update.message.chat_id, chat_title=update.message.chat.title)
 
 
