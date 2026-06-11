@@ -492,6 +492,23 @@ def _build_chat_context(chat_id: int) -> str:
     return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)
 
 
+# Ukrainian-only Cyrillic letters — і, ї, є, ґ — never appear in Russian.
+# Surzhyk / mixed Russian-Ukrainian slang doesn't count as Ukrainian — only
+# a message with several of these letters is treated as Ukrainian; anything
+# else (Russian or surzhyk) defaults to Russian. A deterministic check on the
+# triggering message is far more reliable than asking the model to judge it
+# amid a long prompt, where it tends to drift based on chat history instead.
+_UKRAINIAN_ONLY_CHARS = set("іїєґІЇЄҐ")
+
+
+def _detect_reply_language(text: str) -> str | None:
+    cyrillic = sum(1 for ch in text if "Ѐ" <= ch <= "ӿ")
+    if cyrillic < 3:
+        return None
+    ukrainian = sum(1 for ch in text if ch in _UKRAINIAN_ONLY_CHARS)
+    return "uk" if ukrainian >= 2 else "ru"
+
+
 async def _update_profile(user_id: int, name: str, username: str | None, *, force: bool = False) -> None:
     messages = USER_MESSAGE_BUFFERS.get(user_id, [])
     if not force and len(messages) < PROFILE_UPDATE_THRESHOLD:
@@ -559,6 +576,26 @@ async def _reply_with_ai(
                 "time:\n" + phrases_text
             )
             chat_context = (chat_context + "\n\n" + phrases_note).strip() if chat_context else phrases_note
+
+    lang = _detect_reply_language(prompt)
+    if lang == "ru":
+        lang_note = (
+            "LANGUAGE OVERRIDE (highest priority — overrides chat history, "
+            "your own previous replies, and any other language cue): the "
+            "message you're replying to right now is in Russian or surzhyk "
+            "(mixed Russian-Ukrainian slang). Reply entirely in Russian, not "
+            "Ukrainian."
+        )
+    elif lang == "uk":
+        lang_note = (
+            "LANGUAGE OVERRIDE (highest priority): the message you're "
+            "replying to right now is substantially in Ukrainian. Reply in "
+            "Ukrainian."
+        )
+    else:
+        lang_note = None
+    if lang_note:
+        chat_context = (chat_context + "\n\n" + lang_note).strip() if chat_context else lang_note
 
     image_bytes: bytes | None = None
     photo_list = message.photo or (
