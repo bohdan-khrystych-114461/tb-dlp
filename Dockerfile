@@ -14,5 +14,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
+COPY tb_dlp ./tb_dlp
 
 CMD pip install -q --upgrade yt-dlp && python bot.py

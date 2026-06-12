@@ -93,7 +93,23 @@ Stored as a Fly.io secret (`BOT_TOKEN`). Never hardcoded. To rotate:
 
 ## Files
 
-- `bot.py` — bot logic
+- `bot.py` — thin entrypoint shim (`from tb_dlp.main import main; main()`)
+- `tb_dlp/` — the actual bot package
+  - `config.py` — env vars, constants, regexes, logging setup
+  - `storage.py` — generic `JSONStore` helper for persisted JSON state
+  - `ai.py` — Gemini client, system prompt, language detection, AI on/off toggle
+  - `chats.py` — chat whitelist + chat name lookups
+  - `stats.py` — usage stats + video cache
+  - `chat_history.py` — per-chat recent message history for AI context
+  - `bot_messages.py` — tracks messages the bot sent (for the 👎 delete reaction)
+  - `comebacks.py` — comeback examples/phrases shown to the AI
+  - `profiles.py` — per-user profile notes, auto-updated from chat activity
+  - `replies.py` — builds AI replies (prompt assembly, rate-limit handling)
+  - `downloader.py` — yt-dlp/gallery-dl download + send logic
+  - `handlers.py` — Telegram message/command/reaction handlers
+  - `lifecycle.py` — daily yt-dlp self-update + startup hook
+  - `main.py` — builds the `Application` and starts polling
+  - `web/` — the admin dashboard (aiohttp), one module per page
 - `Dockerfile` — upgrades yt-dlp on every startup, then runs bot.py
 - `fly.toml` — Fly.io config (region, VM size, volume mount)
 - `requirements.txt` — Python dependencies
