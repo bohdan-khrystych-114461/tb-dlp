@@ -19,6 +19,56 @@ def toggle_ai_enabled() -> bool:
     return AI_ENABLED
 
 
+# Bot "mood" — selectable from the admin panel. Each mood (other than the
+# default) appends an extra instruction to AI_SYSTEM_PROMPT, nudging the tone
+# without replacing the base personality.
+MOOD_LABELS: dict[str, str] = {
+    "normal": "Normal",
+    "chill": "Chill",
+    "savage": "Savage",
+    "hype": "Hyped",
+    "tired": "Tired",
+}
+
+MOODS: dict[str, str] = {
+    "normal": "",
+    "chill": (
+        "MOOD OVERRIDE: you're in a chill, easygoing mood right now. Dial back "
+        "the roasting and sarcasm — even if someone is rude or trolling, stay "
+        "relaxed and good-natured instead of clapping back hard. Be warm, "
+        "supportive, and low-key."
+    ),
+    "savage": (
+        "MOOD OVERRIDE: you're in a savage mood right now. Be far more willing "
+        "to roast people, even over small stuff that wouldn't normally call "
+        "for it — sharper, meaner, and quicker to bite than usual."
+    ),
+    "hype": (
+        "MOOD OVERRIDE: you're hyped up right now — high energy, enthusiastic, "
+        "lots of personality and exclamation, like you've had three energy "
+        "drinks. Still keep replies short."
+    ),
+    "tired": (
+        "MOOD OVERRIDE: you're exhausted and can barely be bothered right now. "
+        "Replies should be short, low-effort, and a bit grumpy, like someone "
+        "who wants to go back to sleep."
+    ),
+}
+
+_mood_store = JSONStore("/cookies/bot_mood.json", default=lambda: "normal")
+BOT_MOOD: str = _mood_store.load()
+if BOT_MOOD not in MOODS:
+    BOT_MOOD = "normal"
+
+
+def set_mood(mood: str) -> str:
+    global BOT_MOOD
+    if mood in MOODS:
+        BOT_MOOD = mood
+        _mood_store.save(BOT_MOOD)
+    return BOT_MOOD
+
+
 # Try the newest/sharpest model first, then fall back to others with looser
 # free-tier daily quotas if it's 429ing — only once *all* of them are
 # exhausted do we give up and send a "перекур" reply (see replies.RATE_LIMIT_*).
@@ -93,6 +143,8 @@ async def ask_ai(
     image_mime: str = "image/jpeg",
 ) -> str:
     system_parts = [AI_SYSTEM_PROMPT]
+    if MOODS.get(BOT_MOOD):
+        system_parts.append(MOODS[BOT_MOOD])
     if user_note:
         system_parts.append(user_note)
     if chat_context:

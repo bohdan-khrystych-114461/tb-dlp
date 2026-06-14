@@ -43,6 +43,14 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
     ai_btn_class = "btn-outline-danger" if ai.AI_ENABLED else "btn-outline-success"
     ai_action = "off" if ai.AI_ENABLED else "on"
 
+    mood_buttons = "".join(
+        f"""<form method="post" action="/admin/mood" class="d-inline">
+  <input type="hidden" name="mood" value="{key}">
+  <button class="btn btn-sm {'btn-dark' if key == ai.BOT_MOOD else 'btn-outline-secondary'}">{label}</button>
+</form>"""
+        for key, label in ai.MOOD_LABELS.items()
+    )
+
     ai_by_chat = sorted(
         ai_stats.get("by_chat", {}).items(),
         key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS),
@@ -81,11 +89,17 @@ new Chart(document.getElementById('aiChart'), {{
         """<div class="card shadow-sm mb-4"><div class="card-body text-muted">No AI activity yet.</div></div>"""
     )
     body = f"""
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <h4 class="mb-0">Stats</h4>
-  <form method="post" action="/admin/ai-toggle">
-    <button class="btn btn-sm {ai_btn_class}">AI bot: {ai_status} (turn {ai_action})</button>
-  </form>
+  <div class="d-flex align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-1">
+      <span class="text-muted small me-1">Mood:</span>
+      {mood_buttons}
+    </div>
+    <form method="post" action="/admin/ai-toggle">
+      <button class="btn btn-sm {ai_btn_class}">AI bot: {ai_status} (turn {ai_action})</button>
+    </form>
+  </div>
 </div>
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{total}</div><div class="text-muted small">Videos sent</div></div></div></div>
@@ -129,4 +143,12 @@ async def ai_toggle(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
     ai.toggle_ai_enabled()
+    return aio_web.HTTPFound("/admin")
+
+
+async def mood_set(request: aio_web.Request) -> aio_web.Response:
+    if not auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    ai.set_mood(form.get("mood", ""))
     return aio_web.HTTPFound("/admin")
