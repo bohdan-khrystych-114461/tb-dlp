@@ -1,6 +1,6 @@
 import logging
 
-from tb_dlp import ai
+from tb_dlp import ai, stats
 from tb_dlp.storage import JSONStore
 
 log = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ async def update_profile(user_id: int, name: str, username: str | None, *, force
         log.exception("Failed to update profile for %s", name)
         return
 
+    stats.record_ai_reply("profile_update")
     USER_PROFILES[str(user_id)] = {"name": name, "username": username, "notes": notes}
     save_profiles()
 

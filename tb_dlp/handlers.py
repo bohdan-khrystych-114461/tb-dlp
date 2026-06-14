@@ -76,7 +76,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if config.GEMINI_API_KEY and ai.AI_ENABLED and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
-        await replies.reply_with_ai(message, prompt, user)
+        await replies.reply_with_ai(message, prompt, user, trigger="mention")
         return
 
     if (
@@ -87,7 +87,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
     ):
-        await replies.reply_with_ai(message, message.caption or text, user)
+        await replies.reply_with_ai(message, message.caption or text, user, trigger="reply")
         return
 
     if (
@@ -105,7 +105,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         chance = UNPROMPTED_CHANCE_HOT if chat_is_hot else UNPROMPTED_CHANCE
         if now - last >= UNPROMPTED_COOLDOWN and random.random() < chance:
             _chat_last_unprompted[message.chat_id] = now
-            await replies.reply_with_ai(message, text, user, uninvited=True)
+            await replies.reply_with_ai(message, text, user, uninvited=True, trigger="unprompted")
             return
 
     urls = config.URL_RE.findall(text)
@@ -163,6 +163,23 @@ async def chatstats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if top:
             lines.append(f"  {top}")
 
+    await message.reply_text("\n".join(lines))
+
+
+async def aistats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    s = stats.AI_STATS
+    lines = [
+        "🤖 AI chat activity:",
+        f"  Mentions answered: {s.get('mention', 0)}",
+        f"  Replies-to-bot answered: {s.get('reply', 0)}",
+        f"  Unprompted chime-ins: {s.get('unprompted', 0)}",
+        f"  Profile summaries generated: {s.get('profile_update', 0)}",
+        f"  Rate-limited (all models exhausted): {s.get('rate_limited', 0)}",
+    ]
     await message.reply_text("\n".join(lines))
 
 

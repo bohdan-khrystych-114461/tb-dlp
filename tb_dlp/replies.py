@@ -3,7 +3,7 @@ import random
 
 import httpx
 
-from tb_dlp import ai, bot_messages, chat_history, comebacks, profiles
+from tb_dlp import ai, bot_messages, chat_history, comebacks, profiles, stats
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
 
 
-async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False) -> None:
+async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, trigger: str = "mention") -> None:
     global _rate_limited_once
 
     profile = profiles.USER_PROFILES.get(str(user.id)) if user else None
@@ -90,12 +90,14 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False) 
         bot_messages.track_bot_message(sent.chat_id, sent.message_id)
         chat_history.append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
         chat_history.save()
+        stats.record_ai_reply(trigger)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 429 or exc.response.status_code >= 500:
             text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
             _rate_limited_once = True
             sent = await message.reply_text(text_reply)
             bot_messages.track_bot_message(sent.chat_id, sent.message_id)
+            stats.record_ai_rate_limit()
         else:
             log.exception("AI request failed")
     except Exception:

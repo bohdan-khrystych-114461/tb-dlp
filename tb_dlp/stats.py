@@ -16,9 +16,32 @@ _stats_store = JSONStore(
 )
 STATS: dict = _stats_store.load()
 
+# Counts of AI chat activity by trigger — separate from download STATS above
+# so /aistats can show how the bot is actually behaving in chat (how often it
+# chimes in unprompted, how often it's quota-limited, etc.) without grepping logs.
+_ai_stats_store = JSONStore(
+    "/cookies/ai_stats.json",
+    default=lambda: {"mention": 0, "reply": 0, "unprompted": 0, "profile_update": 0, "rate_limited": 0},
+)
+AI_STATS: dict = _ai_stats_store.load()
+
 
 def save_video_cache() -> None:
     _video_cache_store.save(VIDEO_CACHE)
+
+
+def save_ai_stats() -> None:
+    _ai_stats_store.save(AI_STATS)
+
+
+def record_ai_reply(trigger: str) -> None:
+    AI_STATS[trigger] = AI_STATS.get(trigger, 0) + 1
+    save_ai_stats()
+
+
+def record_ai_rate_limit() -> None:
+    AI_STATS["rate_limited"] = AI_STATS.get("rate_limited", 0) + 1
+    save_ai_stats()
 
 
 def remember_video(url: str, file_id: str) -> None:
