@@ -233,6 +233,27 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text("\n".join(lines))
 
 
+async def mood_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    if not context.args:
+        current = ai.MOOD_LABELS.get(ai.BOT_MOOD, ai.BOT_MOOD)
+        options = ", ".join(f"{key} ({label})" for key, label in ai.MOOD_LABELS.items())
+        await message.reply_text(f"Current mood: {current}\n\nUsage: /mood <name>\nOptions: {options}")
+        return
+
+    mood = context.args[0].lower()
+    if mood not in ai.MOODS:
+        options = ", ".join(ai.MOODS)
+        await message.reply_text(f"Unknown mood '{mood}'. Options: {options}")
+        return
+
+    ai.set_mood(mood)
+    await message.reply_text(f"Mood set to {ai.MOOD_LABELS[mood]}.")
+
+
 async def editprofile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if not message or not _is_admin_dm(message):

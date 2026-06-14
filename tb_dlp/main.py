@@ -12,6 +12,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", handlers.stats_command))
     app.add_handler(CommandHandler("chatstats", handlers.chatstats_command))
     app.add_handler(CommandHandler("aistats", handlers.aistats_command))
+    app.add_handler(CommandHandler("mood", handlers.mood_command))
     app.add_handler(CommandHandler("profile", handlers.profile_command))
     app.add_handler(CommandHandler("editprofile", handlers.editprofile_command))
     app.add_handler(MessageReactionHandler(handlers.on_reaction))
