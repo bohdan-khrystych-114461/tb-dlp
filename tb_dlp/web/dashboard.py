@@ -22,6 +22,7 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
         for cid, d in sorted(by_chat.items(), key=lambda kv: -kv[1].get("total", 0))
     ) or "<tr><td colspan='3' class='text-muted'>No data yet.</td></tr>"
 
+    ai_stats = stats.AI_STATS
     ai_status = "ON" if ai.AI_ENABLED else "OFF"
     ai_btn_class = "btn-outline-danger" if ai.AI_ENABLED else "btn-outline-success"
     ai_action = "off" if ai.AI_ENABLED else "on"
@@ -37,6 +38,14 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{cache_hits}</div><div class="text-muted small">From cache</div></div></div></div>
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{len(stats.VIDEO_CACHE)}</div><div class="text-muted small">Cached links</div></div></div></div>
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{len(profiles.USER_PROFILES)}</div><div class="text-muted small">Profiles</div></div></div></div>
+</div>
+<h5 class="mb-3">AI chat activity</h5>
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('mention', 0)}</div><div class="text-muted small">Mentions answered</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('reply', 0)}</div><div class="text-muted small">Replies to bot</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('unprompted', 0)}</div><div class="text-muted small">Unprompted chime-ins</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('profile_update', 0)}</div><div class="text-muted small">Profile updates</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('rate_limited', 0)}</div><div class="text-muted small">Rate-limited</div></div></div></div>
 </div>
 <div class="row g-3">
   <div class="col-md-5">
