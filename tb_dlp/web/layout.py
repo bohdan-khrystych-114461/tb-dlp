@@ -28,6 +28,7 @@ def page(title: str, body: str, active: str = "") -> str:
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{he(title)} — tb-dlp</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-light">
 <nav class="navbar navbar-dark bg-dark px-3 d-flex justify-content-between">

@@ -172,14 +172,31 @@ async def aistats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     s = stats.AI_STATS
+    by_chat = s.get("by_chat", {})
+    totals = {k: 0 for k in stats.AI_STAT_TRIGGERS}
+    for data in by_chat.values():
+        for k in stats.AI_STAT_TRIGGERS:
+            totals[k] += data.get(k, 0)
+
     lines = [
         "🤖 AI chat activity:",
-        f"  Mentions answered: {s.get('mention', 0)}",
-        f"  Replies-to-bot answered: {s.get('reply', 0)}",
-        f"  Unprompted chime-ins: {s.get('unprompted', 0)}",
+        f"  Mentions answered: {totals['mention']}",
+        f"  Replies-to-bot answered: {totals['reply']}",
+        f"  Unprompted chime-ins: {totals['unprompted']}",
         f"  Profile summaries generated: {s.get('profile_update', 0)}",
-        f"  Rate-limited (all models exhausted): {s.get('rate_limited', 0)}",
+        f"  Rate-limited (all models exhausted): {totals['rate_limited']}",
     ]
+
+    if by_chat:
+        lines.append("")
+        lines.append("By chat:")
+        for chat_id, data in sorted(by_chat.items(), key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS)):
+            title = data.get("title") or chat_id
+            lines.append(
+                f"  {title}: mentions {data.get('mention', 0)}, replies {data.get('reply', 0)}, "
+                f"unprompted {data.get('unprompted', 0)}, rate-limited {data.get('rate_limited', 0)}"
+            )
+
     await message.reply_text("\n".join(lines))
 
 

@@ -1,7 +1,23 @@
+import json
+
 from aiohttp import web as aio_web
 
 from tb_dlp import ai, profiles, stats
 from tb_dlp.web.layout import auth, he, page
+
+# Color per AI activity trigger, used for the stacked bar chart segments.
+AI_TRIGGER_COLORS = {
+    "mention": "#0d6efd",
+    "reply": "#6f42c1",
+    "unprompted": "#20c997",
+    "rate_limited": "#dc3545",
+}
+AI_TRIGGER_LABELS = {
+    "mention": "Mentions",
+    "reply": "Replies to bot",
+    "unprompted": "Unprompted",
+    "rate_limited": "Rate-limited",
+}
 
 
 async def stats_page(request: aio_web.Request) -> aio_web.Response:
@@ -26,6 +42,44 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
     ai_status = "ON" if ai.AI_ENABLED else "OFF"
     ai_btn_class = "btn-outline-danger" if ai.AI_ENABLED else "btn-outline-success"
     ai_action = "off" if ai.AI_ENABLED else "on"
+
+    ai_by_chat = sorted(
+        ai_stats.get("by_chat", {}).items(),
+        key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS),
+    )
+    ai_chart_data = {
+        "labels": [d.get("title") or cid for cid, d in ai_by_chat],
+        "datasets": [
+            {
+                "label": AI_TRIGGER_LABELS[trigger],
+                "data": [d.get(trigger, 0) for _, d in ai_by_chat],
+                "backgroundColor": AI_TRIGGER_COLORS[trigger],
+            }
+            for trigger in stats.AI_STAT_TRIGGERS
+        ],
+    }
+    # Escape "</" so a chat title containing "</script>" can't break out of
+    # the inline <script> block this gets embedded in.
+    ai_chart_json = json.dumps(ai_chart_data).replace("</", "<\\/")
+    ai_totals = {k: sum(d.get(k, 0) for _, d in ai_by_chat) for k in stats.AI_STAT_TRIGGERS}
+    ai_chart_section = (
+        f"""<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">AI activity by chat</div>
+  <div class="card-body"><canvas id="aiChart"></canvas></div>
+</div>
+<script>
+new Chart(document.getElementById('aiChart'), {{
+  type: 'bar',
+  data: {ai_chart_json},
+  options: {{
+    responsive: true,
+    scales: {{ x: {{ stacked: true }}, y: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }} }} }}
+  }}
+}});
+</script>"""
+        if ai_by_chat else
+        """<div class="card shadow-sm mb-4"><div class="card-body text-muted">No AI activity yet.</div></div>"""
+    )
     body = f"""
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="mb-0">Stats</h4>
@@ -41,12 +95,13 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
 </div>
 <h5 class="mb-3">AI chat activity</h5>
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('mention', 0)}</div><div class="text-muted small">Mentions answered</div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('reply', 0)}</div><div class="text-muted small">Replies to bot</div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('unprompted', 0)}</div><div class="text-muted small">Unprompted chime-ins</div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('profile_update', 0)}</div><div class="text-muted small">Profile updates</div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_stats.get('rate_limited', 0)}</div><div class="text-muted small">Rate-limited</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_totals['mention']}</div><div class="text-muted small">Mentions answered</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_totals['reply']}</div><div class="text-muted small">Replies to bot</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_totals['unprompted']}</div><div class="text-muted small">Unprompted chime-ins</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{ai_totals['rate_limited']}</div><div class="text-muted small">Rate-limited</div></div></div></div>
 </div>
+{ai_chart_section}
+<p class="text-muted small mb-4">Profile summaries generated: {ai_stats.get('profile_update', 0)} (global, not tied to a single chat)</p>
 <div class="row g-3">
   <div class="col-md-5">
     <div class="card shadow-sm">

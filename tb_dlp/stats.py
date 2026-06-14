@@ -17,11 +17,15 @@ _stats_store = JSONStore(
 STATS: dict = _stats_store.load()
 
 # Counts of AI chat activity by trigger — separate from download STATS above
-# so /aistats can show how the bot is actually behaving in chat (how often it
-# chimes in unprompted, how often it's quota-limited, etc.) without grepping logs.
+# so /aistats and the dashboard can show how the bot is actually behaving in
+# chat (how often it chimes in unprompted, how often it's quota-limited per
+# chat, etc.) without grepping logs. profile_update is global (not tied to a
+# single chat — a user's message buffer can span multiple chats).
+AI_STAT_TRIGGERS = ("mention", "reply", "unprompted", "rate_limited")
+
 _ai_stats_store = JSONStore(
     "/cookies/ai_stats.json",
-    default=lambda: {"mention": 0, "reply": 0, "unprompted": 0, "profile_update": 0, "rate_limited": 0},
+    default=lambda: {"profile_update": 0, "by_chat": {}},
 )
 AI_STATS: dict = _ai_stats_store.load()
 
@@ -34,13 +38,27 @@ def save_ai_stats() -> None:
     _ai_stats_store.save(AI_STATS)
 
 
-def record_ai_reply(trigger: str) -> None:
-    AI_STATS[trigger] = AI_STATS.get(trigger, 0) + 1
+def _ai_chat_stats(chat_id: int, chat_title: str | None) -> dict:
+    by_chat = AI_STATS.setdefault("by_chat", {})
+    chat_stats = by_chat.setdefault(str(chat_id), {"title": chat_title, **{k: 0 for k in AI_STAT_TRIGGERS}})
+    chat_stats["title"] = chat_title  # keep the latest title (groups get renamed)
+    return chat_stats
+
+
+def record_profile_update() -> None:
+    AI_STATS["profile_update"] = AI_STATS.get("profile_update", 0) + 1
     save_ai_stats()
 
 
-def record_ai_rate_limit() -> None:
-    AI_STATS["rate_limited"] = AI_STATS.get("rate_limited", 0) + 1
+def record_ai_reply(trigger: str, chat_id: int, chat_title: str | None) -> None:
+    chat_stats = _ai_chat_stats(chat_id, chat_title)
+    chat_stats[trigger] = chat_stats.get(trigger, 0) + 1
+    save_ai_stats()
+
+
+def record_ai_rate_limit(chat_id: int, chat_title: str | None) -> None:
+    chat_stats = _ai_chat_stats(chat_id, chat_title)
+    chat_stats["rate_limited"] = chat_stats.get("rate_limited", 0) + 1
     save_ai_stats()
 
 

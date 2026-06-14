@@ -90,14 +90,14 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         bot_messages.track_bot_message(sent.chat_id, sent.message_id)
         chat_history.append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
         chat_history.save()
-        stats.record_ai_reply(trigger)
+        stats.record_ai_reply(trigger, message.chat_id, message.chat.title)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 429 or exc.response.status_code >= 500:
             text_reply = RATE_LIMIT_REPEAT_REPLY if _rate_limited_once else RATE_LIMIT_FIRST_REPLY
             _rate_limited_once = True
             sent = await message.reply_text(text_reply)
             bot_messages.track_bot_message(sent.chat_id, sent.message_id)
-            stats.record_ai_rate_limit()
+            stats.record_ai_rate_limit(message.chat_id, message.chat.title)
         else:
             log.exception("AI request failed")
     except Exception:
