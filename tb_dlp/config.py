@@ -6,6 +6,11 @@ import re
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+# httpx logs the full request URL at INFO level, which for Telegram API calls
+# includes the bot token (https://api.telegram.org/bot<TOKEN>/...) — keep
+# that out of Fly's logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
