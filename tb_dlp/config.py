@@ -10,6 +10,10 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
+# Public URL of the admin dashboard (Fly.io's default app domain), used to
+# build a one-click login link for /dashboard.
+DASHBOARD_BASE_URL = "https://tb-dlp.fly.dev"
+
 # Admin-only commands (/stats, /profile) are restricted to a private DM from
 # this Telegram user — keeps usage data and member profiles out of the groups.
 ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", "247313805"))

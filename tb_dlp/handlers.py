@@ -3,7 +3,7 @@ import logging
 import random
 import time
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from tb_dlp import ai, bot_messages, chat_history, chats, config, downloader, profiles, replies, stats, webpage
@@ -54,7 +54,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if user and not user.is_bot:
         chat_history.append_to_chat_history(message.chat_id, user.full_name, text, is_bot=False)
-        if config.GEMINI_API_KEY and ai.AI_ENABLED:
+        if config.GEMINI_API_KEY and ai.is_ai_enabled_for_chat(message.chat_id):
             profiles.USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             profiles.save_message_buffers()
             asyncio.create_task(profiles.update_profile(user.id, user.full_name, user.username))
@@ -74,7 +74,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 await downloader.handle_url(update, url, force=True)
             return
 
-    if config.GEMINI_API_KEY and ai.AI_ENABLED and bot_username and user and f"@{bot_username}" in text:
+    if config.GEMINI_API_KEY and ai.is_ai_enabled_for_chat(message.chat_id) and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
         page_context = ""
         for url in config.URL_RE.findall(prompt):
@@ -89,7 +89,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if (
         config.GEMINI_API_KEY
-        and ai.AI_ENABLED
+        and ai.is_ai_enabled_for_chat(message.chat_id)
         and user
         and message.reply_to_message
         and message.reply_to_message.from_user
@@ -100,7 +100,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if (
         config.GEMINI_API_KEY
-        and ai.AI_ENABLED
+        and ai.is_ai_enabled_for_chat(message.chat_id)
         and user
         and not user.is_bot
         and len(text) >= 10
@@ -206,6 +206,22 @@ async def aistats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
 
     await message.reply_text("\n".join(lines))
+
+
+async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not _is_admin_dm(message):
+        return
+
+    if not config.ADMIN_TOKEN:
+        await message.reply_text("ADMIN_TOKEN secret is not set.")
+        return
+
+    url = f"{config.DASHBOARD_BASE_URL}/admin?token={config.ADMIN_TOKEN}"
+    await message.reply_text(
+        "🔧 Admin dashboard",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open dashboard", url=url)]]),
+    )
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

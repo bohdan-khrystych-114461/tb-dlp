@@ -2,7 +2,7 @@ from urllib.parse import quote as urlquote
 
 from aiohttp import web as aio_web
 
-from tb_dlp import chats
+from tb_dlp import ai, chats
 from tb_dlp.web.layout import auth, he, page
 
 
@@ -14,8 +14,15 @@ async def whitelist_page(request: aio_web.Request) -> aio_web.Response:
     rows = ""
     for chat_id in sorted(chats.ALLOWED_CHAT_IDS):
         name = he(chats.chat_name(chat_id))
+        ai_on = chat_id not in ai.AI_DISABLED_CHATS
+        ai_btn_class = "btn-outline-success" if ai_on else "btn-outline-secondary"
+        ai_label = "AI: ON" if ai_on else "AI: OFF"
         rows += (
             f"<tr><td>{name}</td><td><code>{chat_id}</code></td><td>"
+            f"<form method='post' action='/admin/whitelist/ai-toggle' style='display:inline'>"
+            f"<input type='hidden' name='chat_id' value='{chat_id}'>"
+            f"<button class='btn btn-sm {ai_btn_class}'>{ai_label}</button>"
+            f"</form></td><td>"
             f"<form method='post' action='/admin/whitelist/remove' style='display:inline'>"
             f"<input type='hidden' name='chat_id' value='{chat_id}'>"
             f"<button class='btn btn-sm btn-outline-danger' onclick=\"return confirm('Remove {name}?')\">Remove</button>"
@@ -31,7 +38,7 @@ async def whitelist_page(request: aio_web.Request) -> aio_web.Response:
 {alert}
 <div class="card shadow-sm mb-4">
   <table class="table table-hover align-middle mb-0">
-    <thead class="table-light"><tr><th>Chat name</th><th>Chat ID</th><th></th></tr></thead>
+    <thead class="table-light"><tr><th>Chat name</th><th>Chat ID</th><th></th><th></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </div>
@@ -73,6 +80,18 @@ async def whitelist_add(request: aio_web.Request) -> aio_web.Response:
     chats.save_whitelist()
     name = chats.chat_name(chat_id)
     return aio_web.HTTPFound(f"/admin/whitelist?msg={urlquote(f'Added: {name}')}")
+
+
+async def ai_toggle_chat(request: aio_web.Request) -> aio_web.Response:
+    if not auth(request):
+        return aio_web.HTTPFound("/login")
+    form = await request.post()
+    try:
+        chat_id = int(form.get("chat_id", ""))
+    except (ValueError, TypeError):
+        return aio_web.HTTPFound("/admin/whitelist")
+    ai.toggle_ai_enabled_for_chat(chat_id)
+    return aio_web.HTTPFound("/admin/whitelist")
 
 
 async def whitelist_remove(request: aio_web.Request) -> aio_web.Response:

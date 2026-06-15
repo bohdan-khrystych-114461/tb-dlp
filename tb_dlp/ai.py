@@ -20,6 +20,32 @@ def toggle_ai_enabled() -> bool:
     return AI_ENABLED
 
 
+# Per-chat opt-out layered on top of the global switch above — lets one group
+# mute the AI without affecting any other chat.
+_ai_disabled_chats_store = JSONStore(
+    "/cookies/ai_disabled_chats.json",
+    default=set,
+    decode=lambda raw: {int(x) for x in raw},
+    encode=list,
+)
+AI_DISABLED_CHATS: set[int] = _ai_disabled_chats_store.load()
+
+
+def is_ai_enabled_for_chat(chat_id: int) -> bool:
+    return AI_ENABLED and chat_id not in AI_DISABLED_CHATS
+
+
+def toggle_ai_enabled_for_chat(chat_id: int) -> bool:
+    if chat_id in AI_DISABLED_CHATS:
+        AI_DISABLED_CHATS.discard(chat_id)
+        enabled = True
+    else:
+        AI_DISABLED_CHATS.add(chat_id)
+        enabled = False
+    _ai_disabled_chats_store.save(AI_DISABLED_CHATS)
+    return enabled
+
+
 # Try the newest/sharpest model first, then fall back to others with looser
 # free-tier daily quotas if it's 429ing — only once *all* of them are
 # exhausted do we give up and send a "перекур" reply (see replies.RATE_LIMIT_*).
