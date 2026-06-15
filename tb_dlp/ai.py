@@ -190,12 +190,19 @@ async def ask_ai(
 
 
 # Ukrainian-only Cyrillic letters — і, ї, є, ґ — never appear in Russian.
+# Russian-only Cyrillic letters — ё, ъ, ы, э — never appear in Ukrainian.
 # Surzhyk / mixed Russian-Ukrainian slang doesn't count as Ukrainian — only
-# a message with several of these letters is treated as Ukrainian; anything
-# else (Russian or surzhyk) defaults to Russian. A deterministic check on the
-# triggering message is far more reliable than asking the model to judge it
-# amid a long prompt, where it tends to drift based on chat history instead.
+# a message with several of the Ukrainian-only letters is treated as
+# Ukrainian. But plenty of everyday Ukrainian sentences don't happen to use
+# і/ї/є/ґ either, so absence of those alone doesn't mean Russian/surzhyk —
+# only the presence of a Russian-only letter does. If neither set appears,
+# the message is genuinely ambiguous and we leave it to the model's own
+# judgment (chat history) instead of forcing a language. A deterministic
+# check on the triggering message is far more reliable than asking the model
+# to judge it amid a long prompt, where it tends to drift based on chat
+# history instead.
 _UKRAINIAN_ONLY_CHARS = set("іїєґІЇЄҐ")
+_RUSSIAN_ONLY_CHARS = set("ёъыэЁЪЫЭ")
 
 
 def detect_reply_language(text: str) -> str | None:
@@ -203,4 +210,7 @@ def detect_reply_language(text: str) -> str | None:
     if cyrillic < 3:
         return None
     ukrainian = sum(1 for ch in text if ch in _UKRAINIAN_ONLY_CHARS)
-    return "uk" if ukrainian >= 2 else "ru"
+    if ukrainian >= 2:
+        return "uk"
+    russian = sum(1 for ch in text if ch in _RUSSIAN_ONLY_CHARS)
+    return "ru" if russian >= 1 else None
