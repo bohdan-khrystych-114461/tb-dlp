@@ -58,6 +58,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             profiles.USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             profiles.save_message_buffers()
             asyncio.create_task(profiles.update_profile(user.id, user.full_name, user.username))
+    elif user and user.is_bot and user.username and user.username.lower() == "ruzzkibot":
+        # So the AI can react to/build on what its "best friend" says in the
+        # chat — without this, RuzzkiBot's messages are invisible to
+        # chat_context entirely and get completely ignored.
+        chat_history.append_to_chat_history(message.chat_id, "RuzzkiBot", text, is_bot=False)
 
     # Reply to a message containing a URL + download trigger phrase → re-download
     if (
@@ -74,7 +79,14 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 await downloader.handle_url(update, url, force=True)
             return
 
-    if config.GEMINI_API_KEY and ai.is_ai_enabled_for_chat(message.chat_id) and bot_username and user and f"@{bot_username}" in text:
+    if (
+        config.GEMINI_API_KEY
+        and ai.is_ai_enabled_for_chat(message.chat_id)
+        and bot_username
+        and user
+        and not user.is_bot
+        and f"@{bot_username}" in text
+    ):
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
         page_context = ""
         for url in config.URL_RE.findall(prompt):
@@ -91,6 +103,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         config.GEMINI_API_KEY
         and ai.is_ai_enabled_for_chat(message.chat_id)
         and user
+        and not user.is_bot
         and message.reply_to_message
         and message.reply_to_message.from_user
         and message.reply_to_message.from_user.id == context.bot.id
