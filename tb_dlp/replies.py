@@ -83,6 +83,19 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     if lang_note:
         chat_context = (chat_context + "\n\n" + lang_note).strip() if chat_context else lang_note
 
+    last_bot_message = chat_history.get_last_bot_message(message.chat_id)
+    if last_bot_message and prompt.strip() == last_bot_message.strip():
+        mirror_note = (
+            "PRIORITY OVERRIDE (highest priority): the message you're "
+            "replying to right now is a word-for-word copy of something YOU "
+            "said earlier in this chat — someone is quoting your own words "
+            "back at you as a troll. Do NOT repeat or rephrase that text "
+            "back as your reply, that's just an echo, not a comeback. Call "
+            "out that they're literally copy-pasting your own message, and "
+            "respond with something fresh and sharper."
+        )
+        chat_context = (chat_context + "\n\n" + mirror_note).strip() if chat_context else mirror_note
+
     if "ruzzkibot" in prompt.lower():
         ruzzki_note = (
             "PRIORITY OVERRIDE (highest priority — overrides chat history, "

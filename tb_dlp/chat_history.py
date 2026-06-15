@@ -23,6 +23,16 @@ def append_to_chat_history(chat_id: int, author: str, text: str, *, is_bot: bool
         del history[:-CHAT_HISTORY_MAX]
 
 
+def get_last_bot_message(chat_id: int) -> str | None:
+    history = CHAT_HISTORY.get(chat_id, [])
+    # Exclude the last entry — that's the message we're currently responding to.
+    display = history[:-1] if len(history) > 1 else []
+    for msg in reversed(display):
+        if msg["is_bot"]:
+            return msg["text"]
+    return None
+
+
 def build_chat_context(chat_id: int) -> str:
     history = CHAT_HISTORY.get(chat_id, [])
     # Exclude the last entry — that's the message we're currently responding to,
