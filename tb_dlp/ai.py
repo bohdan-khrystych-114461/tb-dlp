@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime, timezone
 
 import httpx
 
@@ -29,6 +30,13 @@ GEMINI_MODELS = [
     "gemini-2.5-flash-lite",  # 20 RPD
     "gemini-3-flash-preview", # 20 RPD
 ]
+
+# Models confirmed to support "Grounding with Google Search". Grounding has
+# its own, much tighter free-tier quota shared across the project — when
+# enable_search is set, these are tried first WITH the search tool, then
+# execution falls through to the regular GEMINI_MODELS chain (without the
+# tool) so a grounding-quota 429 never costs us the reply entirely.
+GROUNDING_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
 AI_SYSTEM_PROMPT = (
     "You're a participant in a Telegram group chat with friends. "
@@ -91,8 +99,9 @@ async def ask_ai(
     chat_context: str = "",
     image_bytes: bytes | None = None,
     image_mime: str = "image/jpeg",
+    enable_search: bool = False,
 ) -> str:
-    system_parts = [AI_SYSTEM_PROMPT]
+    system_parts = [AI_SYSTEM_PROMPT, f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC)."]
     if user_note:
         system_parts.append(user_note)
     if chat_context:
@@ -117,13 +126,17 @@ async def ask_ai(
         },
     }
 
+    attempts: list[tuple[str, bool]] = [(m, True) for m in GROUNDING_MODELS] if enable_search else []
+    attempts += [(m, False) for m in GEMINI_MODELS]
+
     async with httpx.AsyncClient(timeout=30) as client:
         last_error: httpx.HTTPStatusError | None = None
-        for model in GEMINI_MODELS:
+        for model, use_search in attempts:
+            request_payload = {**payload, "tools": [{"google_search": {}}]} if use_search else payload
             resp = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 params={"key": config.GEMINI_API_KEY},
-                json=payload,
+                json=request_payload,
             )
             # 429 (quota) and 5xx (transient outages) shouldn't sink the whole
             # request — try the next model in the chain instead of giving up.

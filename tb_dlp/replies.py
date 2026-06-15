@@ -16,7 +16,7 @@ RATE_LIMIT_REPEAT_REPLY = "Сплю, не напрягай плз."
 _rate_limited_once = False
 
 
-async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, trigger: str = "mention") -> None:
+async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, trigger: str = "mention", page_context: str = "") -> None:
     global _rate_limited_once
 
     profile = profiles.USER_PROFILES.get(str(user.id)) if user else None
@@ -25,6 +25,8 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         if profile else ""
     )
     chat_context = chat_history.build_chat_context(message.chat_id)
+    if page_context:
+        chat_context = (chat_context + "\n\n" + page_context).strip() if chat_context else page_context
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
@@ -85,7 +87,13 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
             log.exception("Failed to download photo for AI")
 
     try:
-        reply = await ai.ask_ai(prompt, user_note=user_note, chat_context=chat_context, image_bytes=image_bytes)
+        reply = await ai.ask_ai(
+            prompt,
+            user_note=user_note,
+            chat_context=chat_context,
+            image_bytes=image_bytes,
+            enable_search=not uninvited,
+        )
         sent = await message.reply_text(reply)
         bot_messages.track_bot_message(sent.chat_id, sent.message_id)
         chat_history.append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)

@@ -6,7 +6,7 @@ import time
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from tb_dlp import ai, bot_messages, chat_history, chats, config, downloader, profiles, replies, stats
+from tb_dlp import ai, bot_messages, chat_history, chats, config, downloader, profiles, replies, stats, webpage
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +76,15 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if config.GEMINI_API_KEY and ai.AI_ENABLED and bot_username and user and f"@{bot_username}" in text:
         prompt = (message.caption or text).replace(f"@{bot_username}", "").strip()
-        await replies.reply_with_ai(message, prompt, user, trigger="mention")
+        page_context = ""
+        for url in config.URL_RE.findall(prompt):
+            if config.YOUTUBE_RE.search(url) or config.INSTAGRAM_RE.search(url) or config.TIKTOK_RE.search(url):
+                continue
+            summary = await webpage.fetch_page_summary(url)
+            if summary:
+                page_context = f"The message links to this page:\n{summary}"
+                break
+        await replies.reply_with_ai(message, prompt, user, trigger="mention", page_context=page_context)
         return
 
     if (
