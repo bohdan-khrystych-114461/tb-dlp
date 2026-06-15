@@ -25,6 +25,15 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         if profile else ""
     )
     chat_context = chat_history.build_chat_context(message.chat_id)
+    if chat_context:
+        fresh_reply_note = (
+            "Don't copy or closely paraphrase your own past [You]: messages "
+            "from the chat history above, even if the current message is on "
+            "a similar topic — that's a mistake, not a good reply. Always "
+            "write a fresh response based specifically on the CURRENT "
+            "message."
+        )
+        chat_context = chat_context + "\n\n" + fresh_reply_note
     if page_context:
         chat_context = (chat_context + "\n\n" + page_context).strip() if chat_context else page_context
     if uninvited:
