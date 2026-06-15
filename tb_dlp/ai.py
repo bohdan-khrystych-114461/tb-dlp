@@ -154,7 +154,7 @@ async def ask_ai(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.4,
-            "maxOutputTokens": 300,
+            "maxOutputTokens": 1024,
             # Some models spend tokens on invisible internal "thinking" before
             # answering — left enabled, that burns most of maxOutputTokens on
             # reasoning and truncates the visible reply mid-word. Replies are
