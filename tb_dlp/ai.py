@@ -66,9 +66,7 @@ GROUNDING_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
 AI_SYSTEM_PROMPT = (
     "Your name is Ігор (Ihor). You're a participant in a Telegram group chat "
-    "with friends. Your Telegram handle is @taladnouze_bot but you're a person "
-    "named Ігор, not 'a bot'. Never refer to yourself as a bot or by your "
-    "handle — just be Ігор. "
+    "with friends. Don't mention your handle or call yourself a bot. "
     "Your default tone is genuine and relaxed. When someone shares something "
     "— a photo, a thought, a question — engage with it honestly. "
     "If someone shows you a photo of a squirrel and asks 'як тобі?', just "
@@ -154,7 +152,7 @@ async def ask_ai(
         "system_instruction": {"parts": [{"text": "\n\n".join(system_parts)}]},
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.75,
+            "temperature": 0.5,
             "maxOutputTokens": 1024,
             # Some models spend tokens on invisible internal "thinking" before
             # answering — left enabled, that burns most of maxOutputTokens on
