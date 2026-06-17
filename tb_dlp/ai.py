@@ -153,7 +153,7 @@ async def ask_ai(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.5,
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 400,
             # Some models spend tokens on invisible internal "thinking" before
             # answering — left enabled, that burns most of maxOutputTokens on
             # reasoning and truncates the visible reply mid-word. Replies are
@@ -162,8 +162,7 @@ async def ask_ai(
         },
     }
 
-    attempts: list[tuple[str, bool]] = [(m, True) for m in GROUNDING_MODELS] if enable_search else []
-    attempts += [(m, False) for m in GEMINI_MODELS]
+    attempts = [(m, False) for m in GEMINI_MODELS]
 
     async with httpx.AsyncClient(timeout=30) as client:
         last_error: httpx.HTTPStatusError | None = None
