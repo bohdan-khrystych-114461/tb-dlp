@@ -165,14 +165,19 @@ async def ask_ai(
     attempts = [(m, False) for m in GEMINI_MODELS]
 
     async with httpx.AsyncClient(timeout=30) as client:
-        last_error: httpx.HTTPStatusError | None = None
+        last_error: Exception | None = None
         for model, use_search in attempts:
             request_payload = {**payload, "tools": [{"google_search": {}}]} if use_search else payload
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                params={"key": config.GEMINI_API_KEY},
-                json=request_payload,
-            )
+            try:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    params={"key": config.GEMINI_API_KEY},
+                    json=request_payload,
+                )
+            except httpx.TimeoutException as exc:
+                log.warning("Timeout from %s, trying next model", model)
+                last_error = exc
+                continue
             # 429 (quota) and 5xx (transient outages) shouldn't sink the whole
             # request — try the next model in the chain instead of giving up.
             if resp.status_code == 429 or resp.status_code >= 500:
@@ -208,7 +213,4 @@ def detect_reply_language(text: str) -> str | None:
     if cyrillic < 3:
         return None
     ukrainian = sum(1 for ch in text if ch in _UKRAINIAN_ONLY_CHARS)
-    if ukrainian >= 2:
-        return "uk"
-    russian = sum(1 for ch in text if ch in _RUSSIAN_ONLY_CHARS)
-    return "ru" if russian >= 1 else None
+    return "uk" if ukrainian >= 2 else "ru"
