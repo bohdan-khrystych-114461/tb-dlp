@@ -42,6 +42,6 @@ def build_chat_context(chat_id: int) -> str:
         return ""
     lines = []
     for msg in display:
-        prefix = "You" if msg["is_bot"] else msg["author"]
-        lines.append(f"[{prefix}]: {msg['text']}")
+        prefix = "Ігор (you)" if msg["is_bot"] else msg["author"]
+        lines.append(f"{prefix}: {msg['text']}")
     return "Recent group chat (most recent at bottom):\n" + "\n".join(lines)

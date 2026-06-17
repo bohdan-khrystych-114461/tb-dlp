@@ -1,11 +1,27 @@
 import logging
 import random
+import re
 
 import httpx
 
 from tb_dlp import ai, bot_messages, chat_history, comebacks, profiles, stats
 
 log = logging.getLogger(__name__)
+
+_TAG_PREFIX_RE = re.compile(r"^\[?[A-Za-zА-Яа-яЁёІіЇїЄєҐґ\s()]+\]?:\s+")
+
+
+def _clean_reply(text: str) -> str:
+    """Strip leaked [Name]: / Name: prefixes and multi-turn continuations."""
+    text = text.strip()
+    text = _TAG_PREFIX_RE.sub("", text, count=1)
+    lines = text.split("\n")
+    kept: list[str] = []
+    for i, line in enumerate(lines):
+        if i > 0 and _TAG_PREFIX_RE.match(line):
+            break
+        kept.append(line)
+    return "\n".join(kept).strip()
 
 # Gemini free tier caps us at ~20 generateContent calls/day — when that's hit,
 # the AI call 429s and we obviously can't ask the AI to write its own excuse.
@@ -27,11 +43,13 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     chat_context = chat_history.build_chat_context(message.chat_id)
     if chat_context:
         fresh_reply_note = (
-            "Don't copy or closely paraphrase your own past [You]: messages "
+            "Don't copy or closely paraphrase your own past messages "
             "from the chat history above, even if the current message is on "
-            "a similar topic — that's a mistake, not a good reply. Always "
-            "write a fresh response based specifically on the CURRENT "
-            "message."
+            "a similar topic — always write a fresh response. "
+            "CRITICAL: output ONLY your reply text. Never prefix your reply "
+            "with 'Name:' or '[Name]:' tags. Never generate multiple turns "
+            "or simulate other people's messages. You are writing ONE short "
+            "chat message, not a chat log."
         )
         chat_context = chat_context + "\n\n" + fresh_reply_note
     if page_context:
@@ -128,6 +146,7 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
             image_bytes=image_bytes,
             enable_search=not uninvited,
         )
+        reply = _clean_reply(reply)
         sent = await message.reply_text(reply)
         bot_messages.track_bot_message(sent.chat_id, sent.message_id)
         chat_history.append_to_chat_history(message.chat_id, "bot", reply, is_bot=True)
