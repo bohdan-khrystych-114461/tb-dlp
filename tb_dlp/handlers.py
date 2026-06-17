@@ -58,12 +58,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             profiles.USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             profiles.save_message_buffers()
             asyncio.create_task(profiles.update_profile(user.id, user.full_name, user.username))
-    elif user and user.is_bot and user.username and user.username.lower() == "ruzzkibot":
-        # So the AI can react to/build on what its "best friend" says in the
-        # chat — without this, RuzzkiBot's messages are invisible to
-        # chat_context entirely and get completely ignored.
-        chat_history.append_to_chat_history(message.chat_id, "RuzzkiBot", text, is_bot=False)
-
     # Reply to a message containing a URL + download trigger phrase → re-download
     if (
         user

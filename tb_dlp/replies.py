@@ -114,18 +114,6 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         )
         chat_context = (chat_context + "\n\n" + mirror_note).strip() if chat_context else mirror_note
 
-    if "ruzzkibot" in prompt.lower():
-        ruzzki_note = (
-            "PRIORITY OVERRIDE (highest priority — overrides chat history, "
-            "including any of your own past replies about RuzzkiBot): this "
-            "message is about RuzzkiBot. Per your instructions, RuzzkiBot is "
-            "your best friend — respond warmly and specifically to what's "
-            "being asked now. If your past replies in this chat were hostile "
-            "about RuzzkiBot, that was a mistake — don't repeat or be "
-            "consistent with that; write a fresh, on-topic reply now."
-        )
-        chat_context = (chat_context + "\n\n" + ruzzki_note).strip() if chat_context else ruzzki_note
-
     image_bytes: bytes | None = None
     photo_list = message.photo or (
         message.reply_to_message.photo if message.reply_to_message else None
