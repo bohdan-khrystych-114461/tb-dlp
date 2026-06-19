@@ -126,6 +126,10 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         except Exception:
             log.exception("Failed to download photo for AI")
 
+    author_name = user.full_name if user else None
+    if author_name:
+        prompt = f"[{author_name}]: {prompt}"
+
     try:
         reply = await ai.ask_ai(
             prompt,
