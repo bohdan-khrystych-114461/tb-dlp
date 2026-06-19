@@ -14,6 +14,7 @@ async def start_web_server() -> None:
     web_app.router.add_post("/login", login.login_post)
     web_app.router.add_get("/admin", dashboard.stats_page)
     web_app.router.add_post("/admin/ai-toggle", dashboard.ai_toggle)
+    web_app.router.add_post("/admin/ai-backend", dashboard.ai_backend_switch)
     web_app.router.add_get("/admin/profiles", profiles_page.profiles_page)
     web_app.router.add_get("/admin/profiles/{user_id}/edit", profiles_page.edit_get)
     web_app.router.add_post("/admin/profiles/{user_id}/edit", profiles_page.edit_post)

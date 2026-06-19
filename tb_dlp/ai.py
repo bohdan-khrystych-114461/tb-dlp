@@ -1,10 +1,31 @@
 import base64
+import logging
+import re
 from datetime import datetime, timezone
 
 import httpx
 
 from tb_dlp import config
 from tb_dlp.storage import JSONStore
+
+log = logging.getLogger(__name__)
+
+_ai_backend_store = JSONStore(
+    "/cookies/ai_backend.json",
+    default=lambda: config.AI_BACKEND,
+)
+AI_BACKEND_ACTIVE: str = _ai_backend_store.load()
+
+
+def get_ai_backend() -> str:
+    return AI_BACKEND_ACTIVE
+
+
+def set_ai_backend(backend: str) -> str:
+    global AI_BACKEND_ACTIVE
+    AI_BACKEND_ACTIVE = backend
+    _ai_backend_store.save(backend)
+    return backend
 
 # Toggleable from the admin panel — when off, the bot stays silent (no AI
 # replies to mentions, replies, or unprompted chime-ins) but video downloads
@@ -137,6 +158,56 @@ async def ask_ai(
     image_mime: str = "image/jpeg",
     enable_search: bool = False,
 ) -> str:
+    if AI_BACKEND_ACTIVE == "local":
+        return await _ask_local(prompt, user_note, chat_context, image_bytes, image_mime)
+    return await _ask_gemini(prompt, user_note, chat_context, image_bytes, image_mime)
+
+
+async def _ask_local(
+    prompt: str,
+    user_note: str = "",
+    chat_context: str = "",
+    image_bytes: bytes | None = None,
+    image_mime: str = "image/jpeg",
+) -> str:
+    system_parts = [AI_SYSTEM_PROMPT, f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC)."]
+    if user_note:
+        system_parts.append(user_note)
+    if chat_context:
+        system_parts.append(chat_context)
+
+    messages: list[dict] = [{"role": "system", "content": "\n\n".join(system_parts)}]
+    if image_bytes:
+        data_url = f"data:{image_mime};base64,{base64.b64encode(image_bytes).decode()}"
+        messages.append({"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": data_url}},
+            {"type": "text", "text": prompt or "що думаєш?"},
+        ]})
+    else:
+        messages.append({"role": "user", "content": prompt or "що думаєш?"})
+
+    payload = {
+        "messages": messages,
+        "temperature": 0.5,
+        "max_tokens": 400,
+    }
+    if config.LOCAL_AI_MODEL:
+        payload["model"] = config.LOCAL_AI_MODEL
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(f"{config.LOCAL_AI_URL}/v1/chat/completions", json=payload)
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+        return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
+
+async def _ask_gemini(
+    prompt: str,
+    user_note: str = "",
+    chat_context: str = "",
+    image_bytes: bytes | None = None,
+    image_mime: str = "image/jpeg",
+) -> str:
     system_parts = [AI_SYSTEM_PROMPT, f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC)."]
     if user_note:
         system_parts.append(user_note)
@@ -154,10 +225,6 @@ async def ask_ai(
         "generationConfig": {
             "temperature": 0.5,
             "maxOutputTokens": 400,
-            # Some models spend tokens on invisible internal "thinking" before
-            # answering — left enabled, that burns most of maxOutputTokens on
-            # reasoning and truncates the visible reply mid-word. Replies are
-            # short chat messages, not problems needing step-by-step reasoning.
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }
@@ -178,8 +245,6 @@ async def ask_ai(
                 log.warning("Timeout from %s, trying next model", model)
                 last_error = exc
                 continue
-            # 429 (quota) and 5xx (transient outages) shouldn't sink the whole
-            # request — try the next model in the chain instead of giving up.
             if resp.status_code == 429 or resp.status_code >= 500:
                 last_error = httpx.HTTPStatusError(
                     f"{resp.status_code} from {model}", request=resp.request, response=resp

@@ -43,6 +43,12 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
     ai_btn_class = "btn-outline-danger" if ai.AI_ENABLED else "btn-outline-success"
     ai_action = "off" if ai.AI_ENABLED else "on"
 
+    ai_backend = ai.get_ai_backend()
+    backend_label = "Gemini" if ai_backend == "gemini" else "Local (LM Studio)"
+    backend_other = "local" if ai_backend == "gemini" else "gemini"
+    backend_other_label = "Local" if ai_backend == "gemini" else "Gemini"
+    backend_btn_class = "btn-outline-info"
+
     ai_by_chat = sorted(
         ai_stats.get("by_chat", {}).items(),
         key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS),
@@ -83,9 +89,15 @@ new Chart(document.getElementById('aiChart'), {{
     body = f"""
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h4 class="mb-0">Stats</h4>
-  <form method="post" action="/admin/ai-toggle">
-    <button class="btn btn-sm {ai_btn_class}">AI bot: {ai_status} (turn {ai_action})</button>
-  </form>
+  <div class="d-flex gap-2">
+    <form method="post" action="/admin/ai-toggle">
+      <button class="btn btn-sm {ai_btn_class}">AI: {ai_status} (turn {ai_action})</button>
+    </form>
+    <form method="post" action="/admin/ai-backend">
+      <input type="hidden" name="backend" value="{backend_other}">
+      <button class="btn btn-sm {backend_btn_class}">Backend: {backend_label} (switch to {backend_other_label})</button>
+    </form>
+  </div>
 </div>
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3"><div class="card text-center shadow-sm"><div class="card-body"><div class="fs-2 fw-bold">{total}</div><div class="text-muted small">Videos sent</div></div></div></div>
@@ -129,4 +141,14 @@ async def ai_toggle(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
     ai.toggle_ai_enabled()
+    return aio_web.HTTPFound("/admin")
+
+
+async def ai_backend_switch(request: aio_web.Request) -> aio_web.Response:
+    if not auth(request):
+        return aio_web.HTTPFound("/login")
+    data = await request.post()
+    backend = data.get("backend", "gemini")
+    if backend in ("gemini", "local"):
+        ai.set_ai_backend(backend)
     return aio_web.HTTPFound("/admin")

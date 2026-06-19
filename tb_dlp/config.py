@@ -15,6 +15,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
+# AI backend: "gemini" (default) or "local" (LM Studio / Ollama / any
+# OpenAI-compatible server).
+AI_BACKEND = os.environ.get("AI_BACKEND", "gemini")
+LOCAL_AI_URL = os.environ.get("LOCAL_AI_URL", "http://localhost:1234")
+LOCAL_AI_MODEL = os.environ.get("LOCAL_AI_MODEL", "")
+
 # Public URL of the admin dashboard (Fly.io's default app domain), used to
 # build a one-click login link for /dashboard.
 DASHBOARD_BASE_URL = "https://tb-dlp.fly.dev"
