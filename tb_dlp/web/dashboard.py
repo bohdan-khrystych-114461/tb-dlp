@@ -73,18 +73,23 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
         ai_stats.get("by_chat", {}).items(),
         key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS),
     )
+    def _trunc(s: str, n: int = 25) -> str:
+        return s if len(s) <= n else s[:n] + "…"
+
     ai_chart_data = {
-        "labels": [d.get("title") or cid for cid, d in ai_by_chat],
+        "labels": [_trunc(str(d.get("title") or cid)) for cid, d in ai_by_chat],
         "datasets": [
             {
                 "label": AI_TRIGGER_LABELS[trigger],
                 "data": [d.get(trigger, 0) for _, d in ai_by_chat],
                 "backgroundColor": AI_TRIGGER_COLORS[trigger],
                 "borderRadius": 4,
+                "barThickness": 28,
             }
             for trigger in stats.AI_STAT_TRIGGERS
         ],
     }
+    ai_chart_height = max(200, len(ai_by_chat) * 48 + 80)
     # Escape "</" so a chat title containing "</script>" can't break out of
     # the inline <script> block this gets embedded in.
     ai_chart_json = json.dumps(ai_chart_data).replace("</", "<\\/")
@@ -92,7 +97,7 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
     ai_chart_section = (
         f"""<div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-6">
   <div class="px-5 py-3.5 border-b border-gray-100 font-medium text-sm text-gray-700">AI activity by chat</div>
-  <div class="p-5"><canvas id="aiChart"></canvas></div>
+  <div class="p-5"><div style="height:{ai_chart_height}px"><canvas id="aiChart"></canvas></div></div>
 </div>
 <script>
 Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
@@ -100,9 +105,14 @@ new Chart(document.getElementById('aiChart'), {{
   type: 'bar',
   data: {ai_chart_json},
   options: {{
+    indexAxis: 'y',
     responsive: true,
-    plugins: {{ legend: {{ position: 'bottom', labels: {{ usePointStyle: true, padding: 16 }} }} }},
-    scales: {{ x: {{ stacked: true, grid: {{ display: false }} }}, y: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }}, grid: {{ color: '#f3f4f6' }} }} }}
+    maintainAspectRatio: false,
+    plugins: {{ legend: {{ position: 'bottom', labels: {{ usePointStyle: true, padding: 16, font: {{ size: 12 }} }} }} }},
+    scales: {{
+      x: {{ stacked: true, beginAtZero: true, ticks: {{ precision: 0 }}, grid: {{ color: '#f3f4f6' }} }},
+      y: {{ stacked: true, grid: {{ display: false }}, ticks: {{ font: {{ size: 12 }} }} }}
+    }}
   }}
 }});
 </script>"""
