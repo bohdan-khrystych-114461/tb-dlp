@@ -29,6 +29,7 @@ URL_RE = re.compile(r"https?://[^\s]+")
 YOUTUBE_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 INSTAGRAM_RE = re.compile(r"instagram\.com", re.IGNORECASE)
 TIKTOK_RE = re.compile(r"tiktok\.com", re.IGNORECASE)
+THREADS_RE = re.compile(r"threads\.(com|net)", re.IGNORECASE)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 AUDIO_EXTS = {".mp3", ".m4a"}
 DOWNLOAD_TRIGGER_RE = re.compile(

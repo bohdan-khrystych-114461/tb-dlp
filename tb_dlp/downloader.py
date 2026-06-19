@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
+import httpx
 import yt_dlp
 from telegram import InputMediaPhoto, Update
 
@@ -34,6 +36,51 @@ YDL_OPTS = {
 DOWNLOAD_LOCK = asyncio.Semaphore(1)
 
 
+async def _download_threads(url: str, dest: str) -> dict | None:
+    """Fetch video from a Threads post via the Instagram private API."""
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            page = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }, follow_redirects=True)
+            match = re.search(r'"post_id":"(\d+)"', page.text)
+            if not match:
+                return None
+            post_id = match.group(1)
+
+        cookie_args = ["-b", COOKIES_FILE] if _has_cookies else []
+        proc = await asyncio.create_subprocess_exec(
+            "curl", "-s", *cookie_args,
+            "-H", "User-Agent: Barcelona 289.0.0.77.109 Android",
+            "-H", "X-IG-App-ID: 238260118697367",
+            f"https://i.instagram.com/api/v1/media/{post_id}/info/",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        import json
+        data = json.loads(stdout)
+        items = data.get("items", [])
+        if not items:
+            return None
+
+        item = items[0]
+        video_versions = item.get("video_versions", [])
+        if not video_versions:
+            return None
+
+        video_url = video_versions[0]["url"]
+        async with httpx.AsyncClient(timeout=30) as client:
+            video_resp = await client.get(video_url, follow_redirects=True)
+            video_resp.raise_for_status()
+        out_path = Path(dest) / f"{post_id}.mp4"
+        out_path.write_bytes(video_resp.content)
+        caption = item.get("caption")
+        return {"title": (caption.get("text", "") if caption else "")[:100]}
+    except Exception:
+        log.exception("Threads download failed for %s", url)
+        return None
+
+
 async def handle_url(update: Update, url: str, force: bool = False) -> None:
     async with DOWNLOAD_LOCK:
         await _download_and_send(update, url, force=force)
@@ -55,6 +102,28 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
             stats.save_video_cache()
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        if config.THREADS_RE.search(url):
+            info = await _download_threads(url, tmpdir)
+            if info is not None:
+                all_files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
+                if all_files:
+                    filepath = all_files[0]
+                    size = filepath.stat().st_size
+                    if size > config.MAX_BYTES:
+                        sent = await update.message.reply_text(
+                            f"Video is too large ({size // 1024 // 1024} MB) — Telegram allows 50 MB max."
+                        )
+                        bot_messages.track_bot_message(sent.chat_id, sent.message_id)
+                        return
+                    title = info.get("title", "")
+                    with open(filepath, "rb") as f:
+                        msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+                    bot_messages.track_bot_message(msg.chat_id, msg.message_id)
+                    if msg.video:
+                        stats.remember_video(url, msg.video.file_id)
+                    stats.record_stat(url, cache_hit=False, chat_id=msg.chat_id, chat_title=msg.chat.title)
+                return
+
         opts = {**YDL_OPTS, "outtmpl": f"{tmpdir}/%(id)s.%(ext)s"}
         if config.YOUTUBE_RE.search(url):
             # Cookies push yt-dlp onto YouTube clients that currently hit the
