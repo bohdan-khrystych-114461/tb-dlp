@@ -128,20 +128,6 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         except Exception:
             log.exception("Failed to download photo for AI")
 
-    audio_bytes: bytes | None = None
-    video_note = (
-        message.video_note
-        or (message.reply_to_message.video_note if message.reply_to_message else None)
-    )
-    if video_note:
-        try:
-            tg_file = await message.get_bot().get_file(video_note.file_id)
-            ba = await tg_file.download_as_bytearray()
-            audio_bytes = bytes(ba)
-            if not prompt or prompt.startswith(f"["):
-                prompt = (prompt + " " if prompt else "") + "(this is a video message / кружочек — listen to it and respond to what the person is saying)"
-        except Exception:
-            log.exception("Failed to download video note for AI")
 
     author_name = user.full_name if user else None
     if author_name:
@@ -153,7 +139,6 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
             user_note=user_note,
             chat_context=chat_context,
             image_bytes=image_bytes,
-            audio_bytes=audio_bytes,
             enable_search=not uninvited,
         )
         reply = _clean_reply(reply)
