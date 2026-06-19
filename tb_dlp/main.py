@@ -9,7 +9,7 @@ def main() -> None:
     config.require_bot_token()
     app = ApplicationBuilder().token(config.BOT_TOKEN).post_init(on_startup).build()
     app.add_handler(MessageHandler(
-        (filters.TEXT | filters.CAPTION | filters.VIDEO_NOTE) & ~filters.COMMAND,
+        (filters.TEXT | filters.CAPTION | filters.VIDEO_NOTE | filters.PHOTO) & ~filters.COMMAND,
         handlers.on_message,
     ))
     app.add_handler(CommandHandler("stats", handlers.stats_command))

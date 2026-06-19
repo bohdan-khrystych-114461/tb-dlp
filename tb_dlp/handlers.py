@@ -44,7 +44,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if message.chat_id not in chats.ALLOWED_CHAT_IDS:
         return
 
-    text = message.text
+    text = message.text or message.caption or ""
     bot_username = context.bot.username
     user = message.from_user
 
@@ -53,7 +53,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     _chat_last_activity[message.chat_id] = now
 
     if user and not user.is_bot:
-        chat_history.append_to_chat_history(message.chat_id, user.full_name, text, is_bot=False)
+        chat_history.append_to_chat_history(message.chat_id, user.full_name, text or "[кружочек]", is_bot=False)
         if config.GEMINI_API_KEY and ai.is_ai_enabled_for_chat(message.chat_id):
             profiles.USER_MESSAGE_BUFFERS.setdefault(user.id, []).append(text)
             profiles.save_message_buffers()
