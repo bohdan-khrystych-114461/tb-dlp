@@ -138,6 +138,8 @@ async def ask_ai(
     chat_context: str = "",
     image_bytes: bytes | None = None,
     image_mime: str = "image/jpeg",
+    audio_bytes: bytes | None = None,
+    audio_mime: str = "audio/ogg",
     enable_search: bool = False,
 ) -> str:
     system_parts = [AI_SYSTEM_PROMPT, f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC)."]
@@ -149,6 +151,8 @@ async def ask_ai(
     user_parts: list[dict] = []
     if image_bytes:
         user_parts.append({"inline_data": {"mime_type": image_mime, "data": base64.b64encode(image_bytes).decode()}})
+    if audio_bytes:
+        user_parts.append({"inline_data": {"mime_type": audio_mime, "data": base64.b64encode(audio_bytes).decode()}})
     user_parts.append({"text": prompt or "що думаєш?"})
     contents = [{"role": "user", "parts": user_parts}]
     payload = {
@@ -163,7 +167,8 @@ async def ask_ai(
 
     attempts = [(m, False) for m in GEMINI_MODELS]
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    timeout = 60 if audio_bytes else 30
+    async with httpx.AsyncClient(timeout=timeout) as client:
         last_error: Exception | None = None
         for model, use_search in attempts:
             request_payload = {**payload, "tools": [{"google_search": {}}]} if use_search else payload
