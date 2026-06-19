@@ -47,6 +47,7 @@ async def edit_get(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/admin/profiles")
     name = he(data.get("name", uid))
     username = f"@{he(data['username'])}" if data.get("username") else ""
+    real_name = he(data.get("real_name", ""))
     notes = he(data.get("notes", ""))
     buf = len(profiles.USER_MESSAGE_BUFFERS.get(int(uid), []))
     body = f"""
@@ -58,6 +59,11 @@ async def edit_get(request: aio_web.Request) -> aio_web.Response:
     <div class="card shadow-sm">
       <div class="card-body">
         <form method="post">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Real name</label>
+            <input name="real_name" class="form-control" value="{real_name}" placeholder="e.g. Ваня Петренко">
+            <div class="form-text">The person's real name — AI will know who they actually are.</div>
+          </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Notes</label>
             <textarea name="notes" class="form-control font-monospace" rows="6">{notes}</textarea>
@@ -91,10 +97,12 @@ async def edit_post(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/admin/profiles")
     form = await request.post()
     new_notes = form.get("notes", "").strip()
+    new_real_name = form.get("real_name", "").strip()
+    data["real_name"] = new_real_name
     if new_notes:
         data["notes"] = new_notes
-        profiles.USER_PROFILES[uid] = data
-        profiles.save_profiles()
+    profiles.USER_PROFILES[uid] = data
+    profiles.save_profiles()
     return aio_web.HTTPFound(f"/admin/profiles?saved={urlquote(data.get('name', uid))}")
 
 

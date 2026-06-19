@@ -36,10 +36,12 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     global _rate_limited_once
 
     profile = profiles.USER_PROFILES.get(str(user.id)) if user else None
-    user_note = (
-        f"A note about {user.full_name}: {profile['notes']}"
-        if profile else ""
-    )
+    if profile:
+        real_name = profile.get("real_name", "")
+        name_part = f"{user.full_name} (real name: {real_name})" if real_name else user.full_name
+        user_note = f"A note about {name_part}: {profile['notes']}"
+    else:
+        user_note = ""
     chat_context = chat_history.build_chat_context(message.chat_id)
     if chat_context:
         fresh_reply_note = (
