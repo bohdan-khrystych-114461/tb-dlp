@@ -18,7 +18,7 @@ def page(title: str, body: str, active: str = "") -> str:
         ("Phrases", "/admin/phrases", "phrases"),
     ]
     nav = "".join(
-        f'<a href="{url}" class="nav-link px-2 {"text-white fw-bold" if active == key else "text-white-50"}">{label}</a>'
+        f'<a href="{url}" class="px-3 py-2 text-sm {"text-white font-semibold" if active == key else "text-gray-400 hover:text-white"}">{label}</a>'
         for label, url, key in links
     )
     return f"""<!DOCTYPE html>
@@ -27,15 +27,15 @@ def page(title: str, body: str, active: str = "") -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{he(title)} — tb-dlp</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="bg-light">
-<nav class="navbar navbar-dark bg-dark px-3 d-flex justify-content-between">
-  <span class="navbar-brand fw-bold mb-0">tb-dlp</span>
-  <div class="d-flex">{nav}</div>
+<body class="bg-gray-50 min-h-screen">
+<nav class="bg-gray-900 px-4 flex items-center justify-between h-12">
+  <span class="text-white font-bold text-lg">tb-dlp</span>
+  <div class="flex">{nav}</div>
 </nav>
-<div class="container py-4">{body}</div>
+<div class="max-w-6xl mx-auto px-4 py-6">{body}</div>
 </body>
 </html>"""
 

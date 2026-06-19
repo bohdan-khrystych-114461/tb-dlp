@@ -13,24 +13,22 @@ _LOGIN_LOCKOUT_SECONDS = 3600
 async def login_get(request: aio_web.Request) -> aio_web.Response:
     if not config.ADMIN_TOKEN:
         return aio_web.Response(
-            text=page("Login", "<div class='alert alert-danger'>ADMIN_TOKEN secret is not set on Fly.io.</div>"),
+            text=page("Login", "<div class='bg-red-50 text-red-800 border border-red-200 rounded px-4 py-2'>ADMIN_TOKEN secret is not set on Fly.io.</div>"),
             content_type="text/html",
         )
     error = "error" in request.rel_url.query
     body = f"""
-<div class="row justify-content-center mt-5">
-  <div class="col-sm-8 col-md-4">
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h5 class="card-title mb-3">Admin login</h5>
-        {"<div class='alert alert-danger py-2'>Wrong token.</div>" if error else ""}
-        <form method="post">
-          <div class="mb-3">
-            <input type="password" name="token" class="form-control" placeholder="Admin token" autofocus>
-          </div>
-          <button type="submit" class="btn btn-dark w-100">Login</button>
-        </form>
-      </div>
+<div class="flex items-center justify-center min-h-[60vh]">
+  <div class="w-full max-w-sm">
+    <div class="bg-white rounded-lg shadow p-6">
+      <h5 class="font-semibold text-lg mb-3">Admin login</h5>
+      {"<div class='bg-red-50 text-red-800 border border-red-200 rounded px-4 py-2 mb-3'>Wrong token.</div>" if error else ""}
+      <form method="post">
+        <div class="mb-3">
+          <input type="password" name="token" class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Admin token" autofocus>
+        </div>
+        <button type="submit" class="w-full bg-gray-900 text-white rounded py-2 hover:bg-gray-800">Login</button>
+      </form>
     </div>
   </div>
 </div>"""
@@ -43,7 +41,7 @@ async def login_post(request: aio_web.Request) -> aio_web.Response:
     failures = [t for t in _login_failures.get(ip, []) if now - t < _LOGIN_LOCKOUT_SECONDS]
     if len(failures) >= _LOGIN_MAX_ATTEMPTS:
         return aio_web.Response(
-            text=page("Login", "<div class='alert alert-danger'>Too many failed attempts. Try again in an hour.</div>"),
+            text=page("Login", "<div class='bg-red-50 text-red-800 border border-red-200 rounded px-4 py-2'>Too many failed attempts. Try again in an hour.</div>"),
             content_type="text/html",
             status=429,
         )

@@ -34,40 +34,40 @@ async def messages_page(request: aio_web.Request) -> aio_web.Response:
     error = request.rel_url.query.get("error", "")
     alert = ""
     if msg:
-        alert += f"<div class='alert alert-success py-2'>{he(msg)}</div>"
+        alert += f"<div class='bg-green-50 text-green-800 border border-green-200 rounded px-4 py-2 mb-3'>{he(msg)}</div>"
     if error:
-        alert += f"<div class='alert alert-danger py-2'>{he(error)}</div>"
+        alert += f"<div class='bg-red-50 text-red-800 border border-red-200 rounded px-4 py-2 mb-3'>{he(error)}</div>"
     body = f"""
-<h4 class="mb-3">Messages</h4>
+<h4 class="text-xl font-semibold mb-3">Messages</h4>
 {alert}
-<div class="card shadow-sm mb-4">
-  <div class="card-header fw-semibold">Delete a message</div>
-  <div class="card-body">
+<div class="bg-white rounded-lg shadow mb-4">
+  <div class="px-4 py-3 border-b border-gray-200 font-semibold">Delete a message</div>
+  <div class="p-4">
     <form method="post" action="/admin/messages/delete">
       <div class="mb-2">
-        <label class="form-label small">Telegram message link</label>
-        <input type="text" name="link" class="form-control form-control-sm" placeholder="https://t.me/c/.../...">
+        <label class="block text-sm text-gray-600 mb-1">Telegram message link</label>
+        <input type="text" name="link" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://t.me/c/.../...">
       </div>
-      <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this message?')">Delete</button>
+      <button class="px-3 py-1 text-sm border border-red-500 text-red-500 rounded hover:bg-red-50" onclick="return confirm('Delete this message?')">Delete</button>
     </form>
-    <div class="form-text">Works on any message — the bot is an admin in the group.</div>
+    <div class="text-sm text-gray-500 mt-2">Works on any message — the bot is an admin in the group.</div>
   </div>
 </div>
-<div class="card shadow-sm">
-  <div class="card-header fw-semibold">Edit a message</div>
-  <div class="card-body">
+<div class="bg-white rounded-lg shadow">
+  <div class="px-4 py-3 border-b border-gray-200 font-semibold">Edit a message</div>
+  <div class="p-4">
     <form method="post" action="/admin/messages/edit">
       <div class="mb-2">
-        <label class="form-label small">Telegram message link</label>
-        <input type="text" name="link" class="form-control form-control-sm" placeholder="https://t.me/c/.../...">
+        <label class="block text-sm text-gray-600 mb-1">Telegram message link</label>
+        <input type="text" name="link" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://t.me/c/.../...">
       </div>
       <div class="mb-2">
-        <label class="form-label small">New text</label>
-        <textarea name="text" class="form-control form-control-sm" rows="4"></textarea>
+        <label class="block text-sm text-gray-600 mb-1">New text</label>
+        <textarea name="text" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows="4"></textarea>
       </div>
-      <button class="btn btn-sm btn-dark">Save</button>
+      <button class="bg-gray-900 text-white px-3 py-1 text-sm rounded hover:bg-gray-800">Save</button>
     </form>
-    <div class="form-text">Telegram only allows editing messages the bot itself sent.</div>
+    <div class="text-sm text-gray-500 mt-2">Telegram only allows editing messages the bot itself sent.</div>
   </div>
 </div>"""
     return aio_web.Response(text=page("Messages", body, active="messages"), content_type="text/html")

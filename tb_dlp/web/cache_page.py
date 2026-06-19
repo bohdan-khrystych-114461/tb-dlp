@@ -10,32 +10,32 @@ async def cache_page(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
     msg = request.rel_url.query.get("msg", "")
-    alert = f"<div class='alert alert-success py-2'>{he(msg)}</div>" if msg else ""
+    alert = f"<div class='bg-green-50 text-green-800 border border-green-200 rounded px-4 py-2 mb-3'>{he(msg)}</div>" if msg else ""
     rows = ""
     for url, file_id in list(stats.VIDEO_CACHE.items()):
         rows += (
             f"<tr>"
-            f"<td><small><a href='{he(url)}' target='_blank' rel='noopener' class='text-break'>{he(url[:80] + ('…' if len(url) > 80 else ''))}</a></small><br>"
-            f"<span class='text-muted' style='font-size:0.75rem'>{he(file_id[:24])}…</span></td>"
-            f"<td class='text-nowrap'>"
+            f"<td class='px-4 py-3 border-b border-gray-100'><a href='{he(url)}' target='_blank' rel='noopener' class='text-blue-600 hover:underline text-sm break-all'>{he(url[:80] + ('…' if len(url) > 80 else ''))}</a><br>"
+            f"<span class='text-gray-400 text-xs'>{he(file_id[:24])}…</span></td>"
+            f"<td class='px-4 py-3 border-b border-gray-100 whitespace-nowrap'>"
             f"<form method='post' action='/admin/cache/remove' style='display:inline'>"
             f"<input type='hidden' name='url' value='{he(url)}'>"
-            f"<button class='btn btn-sm btn-outline-danger'>Remove</button>"
+            f"<button class='text-red-600 hover:text-red-800 text-sm'>Remove</button>"
             f"</form></td></tr>"
         )
     if not rows:
-        rows = "<tr><td colspan='2' class='text-muted py-3 text-center'>Cache is empty.</td></tr>"
+        rows = "<tr><td colspan='2' class='px-4 py-6 text-center text-gray-500'>Cache is empty.</td></tr>"
     body = f"""
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">Video cache <span class="badge bg-secondary">{len(stats.VIDEO_CACHE)}</span></h4>
+<div class="flex justify-between items-center mb-3">
+  <h4 class="text-xl font-semibold">Video cache <span class="bg-gray-500 text-white text-xs px-2 py-0.5 rounded-full ml-2">{len(stats.VIDEO_CACHE)}</span></h4>
   <form method="post" action="/admin/cache/clear" onsubmit="return confirm('Clear all {len(stats.VIDEO_CACHE)} cached entries?')">
-    <button class="btn btn-danger btn-sm" {'disabled' if not stats.VIDEO_CACHE else ''}>Clear all</button>
+    <button class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700" {'disabled' if not stats.VIDEO_CACHE else ''}>Clear all</button>
   </form>
 </div>
 {alert}
-<div class="card shadow-sm">
-  <table class="table table-hover align-middle mb-0">
-    <thead class="table-light"><tr><th>URL / file_id</th><th></th></tr></thead>
+<div class="bg-white rounded-lg shadow overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL / file_id</th><th class="px-4 py-3"></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </div>"""
