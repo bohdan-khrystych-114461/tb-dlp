@@ -10,6 +10,9 @@ from tb_dlp.web.layout import auth, he, page
 TELEGRAM_API = f"https://api.telegram.org/bot{config.BOT_TOKEN}"
 _MSG_LINK_RE = re.compile(r"t\.me/c/(\d+)/(\d+)")
 
+_ALERT_OK = "flex items-center gap-2 bg-emerald-50 text-emerald-700 border-l-4 border-emerald-500 rounded-r-lg px-4 py-2.5 text-sm mb-4"
+_ALERT_ERR = "flex items-center gap-2 bg-red-50 text-red-700 border-l-4 border-red-500 rounded-r-lg px-4 py-2.5 text-sm mb-4"
+
 
 def _parse_message_link(link: str) -> tuple[int, int] | None:
     m = _MSG_LINK_RE.search(link.strip())
@@ -34,40 +37,48 @@ async def messages_page(request: aio_web.Request) -> aio_web.Response:
     error = request.rel_url.query.get("error", "")
     alert = ""
     if msg:
-        alert += f"<div class='bg-green-50 text-green-800 border border-green-200 rounded px-4 py-2 mb-3'>{he(msg)}</div>"
+        alert += f"<div class='{_ALERT_OK}'>{he(msg)}</div>"
     if error:
-        alert += f"<div class='bg-red-50 text-red-800 border border-red-200 rounded px-4 py-2 mb-3'>{he(error)}</div>"
+        alert += f"<div class='{_ALERT_ERR}'>{he(error)}</div>"
     body = f"""
-<h4 class="text-xl font-semibold mb-3">Messages</h4>
+<h1 class="text-2xl font-bold text-gray-900 tracking-tight mb-6">Messages</h1>
 {alert}
-<div class="bg-white rounded-lg shadow mb-4">
-  <div class="px-4 py-3 border-b border-gray-200 font-semibold">Delete a message</div>
-  <div class="p-4">
-    <form method="post" action="/admin/messages/delete">
-      <div class="mb-2">
-        <label class="block text-sm text-gray-600 mb-1">Telegram message link</label>
-        <input type="text" name="link" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://t.me/c/.../...">
-      </div>
-      <button class="px-3 py-1 text-sm border border-red-500 text-red-500 rounded hover:bg-red-50" onclick="return confirm('Delete this message?')">Delete</button>
-    </form>
-    <div class="text-sm text-gray-500 mt-2">Works on any message — the bot is an admin in the group.</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
+    <div class="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+      <svg class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>
+      <span class="font-medium text-sm text-gray-700">Delete a message</span>
+    </div>
+    <div class="p-5">
+      <form method="post" action="/admin/messages/delete">
+        <div class="mb-3">
+          <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Message link</label>
+          <input type="text" name="link" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400" placeholder="https://t.me/c/.../...">
+        </div>
+        <button class="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100" onclick="return confirm('Delete this message?')">Delete</button>
+      </form>
+      <p class="text-xs text-gray-400 mt-3">Works on any message — the bot is an admin in the group.</p>
+    </div>
   </div>
-</div>
-<div class="bg-white rounded-lg shadow">
-  <div class="px-4 py-3 border-b border-gray-200 font-semibold">Edit a message</div>
-  <div class="p-4">
-    <form method="post" action="/admin/messages/edit">
-      <div class="mb-2">
-        <label class="block text-sm text-gray-600 mb-1">Telegram message link</label>
-        <input type="text" name="link" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://t.me/c/.../...">
-      </div>
-      <div class="mb-2">
-        <label class="block text-sm text-gray-600 mb-1">New text</label>
-        <textarea name="text" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" rows="4"></textarea>
-      </div>
-      <button class="bg-gray-900 text-white px-3 py-1 text-sm rounded hover:bg-gray-800">Save</button>
-    </form>
-    <div class="text-sm text-gray-500 mt-2">Telegram only allows editing messages the bot itself sent.</div>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
+    <div class="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+      <svg class="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+      <span class="font-medium text-sm text-gray-700">Edit a message</span>
+    </div>
+    <div class="p-5">
+      <form method="post" action="/admin/messages/edit">
+        <div class="mb-3">
+          <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Message link</label>
+          <input type="text" name="link" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400" placeholder="https://t.me/c/.../...">
+        </div>
+        <div class="mb-3">
+          <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">New text</label>
+          <textarea name="text" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400" rows="4"></textarea>
+        </div>
+        <button class="bg-indigo-600 text-white px-3.5 py-1.5 text-sm font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Save</button>
+      </form>
+      <p class="text-xs text-gray-400 mt-3">Only works on messages the bot itself sent.</p>
+    </div>
   </div>
 </div>"""
     return aio_web.Response(text=page("Messages", body, active="messages"), content_type="text/html")
