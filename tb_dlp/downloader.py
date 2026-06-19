@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 COOKIES_FILE = "/cookies/cookies.txt"
 _has_cookies = Path(COOKIES_FILE).exists()
+COOKIES_MTIME: float | None = Path(COOKIES_FILE).stat().st_mtime if _has_cookies else None
 if _has_cookies:
     log.info("Cookies file found at %s", COOKIES_FILE)
 
@@ -114,6 +115,7 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                             f"Video is too large ({size // 1024 // 1024} MB) — Telegram allows 50 MB max."
                         )
                         bot_messages.track_bot_message(sent.chat_id, sent.message_id)
+                        stats.record_failure(url, "too_large", update.message.chat_id, update.message.chat.title)
                         return
                     title = info.get("title", "")
                     with open(filepath, "rb") as f:
@@ -122,7 +124,11 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                     if msg.video:
                         stats.remember_video(url, msg.video.file_id)
                     stats.record_stat(url, cache_hit=False, chat_id=msg.chat_id, chat_title=msg.chat.title)
+                else:
+                    stats.record_failure(url, "no_files", update.message.chat_id, update.message.chat.title)
                 return
+            stats.record_failure(url, "download_error", update.message.chat_id, update.message.chat.title)
+            return
 
         opts = {**YDL_OPTS, "outtmpl": f"{tmpdir}/%(id)s.%(ext)s"}
         if config.YOUTUBE_RE.search(url):
@@ -141,6 +147,7 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                 info = ydl.extract_info(url, download=True)
         except yt_dlp.utils.DownloadError:
             if not (config.INSTAGRAM_RE.search(url) or config.TIKTOK_RE.search(url)):
+                stats.record_failure(url, "download_error", update.message.chat_id, update.message.chat.title)
                 return
             # yt-dlp intentionally doesn't support Instagram photo posts or
             # TikTok slideshow ("photo mode") posts — fall back to gallery-dl
@@ -154,12 +161,15 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                 )
                 if result.returncode != 0:
                     log.error("gallery-dl failed for %s: %s", url, result.stderr)
+                    stats.record_failure(url, "gallery_dl_error", update.message.chat_id, update.message.chat.title)
                     return
             except Exception:
                 log.exception("gallery-dl failed for %s", url)
+                stats.record_failure(url, "gallery_dl_error", update.message.chat_id, update.message.chat.title)
                 return
         except Exception:
             log.exception("Unexpected error for %s", url)
+            stats.record_failure(url, "unexpected", update.message.chat_id, update.message.chat.title)
             return
 
         all_files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
@@ -167,6 +177,7 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
             # gallery-dl nests files in subdirs — walk the tree
             all_files = [f for f in Path(tmpdir).rglob("*") if f.is_file()]
         if not all_files:
+            stats.record_failure(url, "no_files", update.message.chat_id, update.message.chat.title)
             return
 
         images = sorted(f for f in all_files if f.suffix.lower() in config.IMAGE_EXTS)
@@ -184,6 +195,7 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                     f"Video is too large ({size // 1024 // 1024} MB) — Telegram allows 50 MB max."
                 )
                 bot_messages.track_bot_message(sent.chat_id, sent.message_id)
+                stats.record_failure(url, "too_large", update.message.chat_id, update.message.chat.title)
                 return
             title = info.get("title", "") if not isinstance(info.get("entries"), list) else ""
             with open(filepath, "rb") as f:

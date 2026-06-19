@@ -1,3 +1,5 @@
+import time
+from datetime import date, timedelta
 from urllib.parse import urlparse
 
 from tb_dlp.storage import JSONStore
@@ -29,9 +31,30 @@ _ai_stats_store = JSONStore(
 )
 AI_STATS: dict = _ai_stats_store.load()
 
+MAX_FAILURE_ENTRIES = 100
+_failures_store = JSONStore("/cookies/failures.json", default=list)
+DOWNLOAD_FAILURES: list[dict] = _failures_store.load()
+
 
 def save_video_cache() -> None:
     _video_cache_store.save(VIDEO_CACHE)
+
+
+def save_failures() -> None:
+    _failures_store.save(DOWNLOAD_FAILURES)
+
+
+def record_failure(url: str, reason: str, chat_id: int | None = None, chat_title: str | None = None) -> None:
+    DOWNLOAD_FAILURES.append({
+        "url": url,
+        "platform": platform_from_url(url),
+        "reason": reason,
+        "time": time.time(),
+        "chat": chat_title or str(chat_id or ""),
+    })
+    while len(DOWNLOAD_FAILURES) > MAX_FAILURE_ENTRIES:
+        DOWNLOAD_FAILURES.pop(0)
+    save_failures()
 
 
 def save_ai_stats() -> None:
@@ -53,6 +76,7 @@ def record_profile_update() -> None:
 def record_ai_reply(trigger: str, chat_id: int, chat_title: str | None) -> None:
     chat_stats = _ai_chat_stats(chat_id, chat_title)
     chat_stats[trigger] = chat_stats.get(trigger, 0) + 1
+    chat_stats["last_active"] = time.time()
     save_ai_stats()
 
 
@@ -101,10 +125,18 @@ def record_stat(url: str, *, cache_hit: bool, chat_id: int, chat_title: str | No
     by_platform = STATS.setdefault("by_platform", {})
     by_platform[platform] = by_platform.get(platform, 0) + 1
 
+    by_day = STATS.setdefault("by_day", {})
+    today = date.today().isoformat()
+    by_day[today] = by_day.get(today, 0) + 1
+    cutoff = (date.today() - timedelta(days=90)).isoformat()
+    for k in [k for k in by_day if k < cutoff]:
+        del by_day[k]
+
     by_chat = STATS.setdefault("by_chat", {})
     chat_stats = by_chat.setdefault(str(chat_id), {"title": chat_title, "total": 0, "cache_hits": 0, "by_platform": {}})
-    chat_stats["title"] = chat_title  # keep the latest title (groups get renamed)
+    chat_stats["title"] = chat_title
     chat_stats["total"] += 1
+    chat_stats["last_active"] = time.time()
     if cache_hit:
         chat_stats["cache_hits"] += 1
     chat_platform = chat_stats.setdefault("by_platform", {})

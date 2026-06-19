@@ -1,9 +1,27 @@
+import time
 from urllib.parse import quote as urlquote
 
 from aiohttp import web as aio_web
 
-from tb_dlp import ai, chats
+from tb_dlp import ai, chats, stats
 from tb_dlp.web.layout import auth, he, page
+
+
+def _relative_time(ts: float) -> str:
+    delta = int(time.time() - ts)
+    if delta < 60:
+        return "just now"
+    if delta < 3600:
+        return f"{delta // 60}m ago"
+    if delta < 86400:
+        return f"{delta // 3600}h ago"
+    return f"{delta // 86400}d ago"
+
+
+def _chat_last_active(chat_id: int) -> float:
+    dl = stats.STATS.get("by_chat", {}).get(str(chat_id), {}).get("last_active", 0)
+    ai_t = stats.AI_STATS.get("by_chat", {}).get(str(chat_id), {}).get("last_active", 0)
+    return max(dl, ai_t)
 
 _ALERT_OK = "flex items-center gap-2 bg-emerald-50 text-emerald-700 border-l-4 border-emerald-500 rounded-r-lg px-4 py-2.5 text-sm mb-4"
 
@@ -21,8 +39,12 @@ async def whitelist_page(request: aio_web.Request) -> aio_web.Response:
             ai_btn = f"<button class='inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'><span class='w-1.5 h-1.5 rounded-full bg-emerald-500'></span>AI ON</button>"
         else:
             ai_btn = f"<button class='inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-200 text-gray-500 bg-gray-50 hover:bg-gray-100'><span class='w-1.5 h-1.5 rounded-full bg-gray-400'></span>AI OFF</button>"
+        la = _chat_last_active(chat_id)
+        la_text = _relative_time(la) if la else "—"
+        la_color = "text-gray-400" if not la or time.time() - la > 7 * 86400 else "text-emerald-600"
         rows += (
-            f"<tr class='hover:bg-gray-50'><td class='px-4 py-3 border-b border-gray-100 font-medium text-gray-900'>{name}</td><td class='px-4 py-3 border-b border-gray-100'><code class='text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded'>{chat_id}</code></td><td class='px-4 py-3 border-b border-gray-100'>"
+            f"<tr class='hover:bg-gray-50'><td class='px-4 py-3 border-b border-gray-100 font-medium text-gray-900'>{name}</td><td class='px-4 py-3 border-b border-gray-100'><code class='text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded'>{chat_id}</code></td>"
+            f"<td class='px-4 py-3 border-b border-gray-100 text-xs {la_color}'>{la_text}</td><td class='px-4 py-3 border-b border-gray-100'>"
             f"<form method='post' action='/admin/whitelist/ai-toggle' style='display:inline'>"
             f"<input type='hidden' name='chat_id' value='{chat_id}'>"
             f"{ai_btn}"
@@ -42,7 +64,7 @@ async def whitelist_page(request: aio_web.Request) -> aio_web.Response:
 {alert}
 <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-6">
   <table class="w-full text-sm">
-    <thead><tr class="bg-gray-50/80"><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chat name</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chat ID</th><th class="px-4 py-3"></th><th class="px-4 py-3 w-16"></th></tr></thead>
+    <thead><tr class="bg-gray-50/80"><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chat name</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chat ID</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last active</th><th class="px-4 py-3"></th><th class="px-4 py-3 w-16"></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </div>

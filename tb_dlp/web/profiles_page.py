@@ -34,12 +34,23 @@ async def profiles_page(request: aio_web.Request) -> aio_web.Response:
     body = f"""
 <h1 class="text-2xl font-bold text-gray-900 tracking-tight mb-6">Member profiles</h1>
 {alert}
+<div class="mb-3">
+  <input id="profileFilter" type="text" placeholder="Filter profiles…" class="w-full max-w-xs border border-gray-200 rounded-lg px-3.5 py-2 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400">
+</div>
 <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-  <table class="w-full text-sm">
+  <table class="w-full text-sm" id="profileTable">
     <thead><tr class="bg-gray-50/80"><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member</th><th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th><th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Buffer</th><th class="px-4 py-3 w-16"></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
-</div>"""
+</div>
+<script>
+document.getElementById('profileFilter').addEventListener('input', function() {{
+  var q = this.value.toLowerCase();
+  document.querySelectorAll('#profileTable tbody tr').forEach(function(r) {{
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}});
+</script>"""
     return aio_web.Response(text=page("Profiles", body, active="profiles"), content_type="text/html")
 
 

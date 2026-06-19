@@ -24,6 +24,7 @@ async def start_web_server() -> None:
     web_app.router.add_post("/admin/whitelist/ai-toggle", whitelist_page.ai_toggle_chat)
     web_app.router.add_get("/admin/cache", cache_page.cache_page)
     web_app.router.add_post("/admin/cache/remove", cache_page.cache_remove)
+    web_app.router.add_post("/admin/cache/bulk-remove", cache_page.cache_bulk_remove)
     web_app.router.add_post("/admin/cache/clear", cache_page.cache_clear)
     web_app.router.add_get("/admin/messages", messages_page.messages_page)
     web_app.router.add_post("/admin/messages/delete", messages_page.messages_delete)
