@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 import subprocess
@@ -37,6 +38,30 @@ YDL_OPTS = {
 DOWNLOAD_LOCK = asyncio.Semaphore(1)
 
 
+async def _video_dimensions(filepath: Path) -> tuple[int | None, int | None]:
+    """Get display width and height via ffprobe, accounting for rotation."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height:stream_tags=rotate",
+            "-of", "json", str(filepath),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return None, None
+        stream = json.loads(stdout).get("streams", [{}])[0]
+        w, h = stream.get("width"), stream.get("height")
+        if w is None or h is None:
+            return None, None
+        rotation = int(stream.get("tags", {}).get("rotate", "0"))
+        if rotation % 180 != 0:
+            w, h = h, w
+        return w, h
+    except Exception:
+        return None, None
+
+
 async def _download_threads(url: str, dest: str) -> dict | None:
     """Fetch video from a Threads post via the Instagram private API."""
     try:
@@ -58,7 +83,6 @@ async def _download_threads(url: str, dest: str) -> dict | None:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
-        import json
         data = json.loads(stdout)
         items = data.get("items", [])
         if not items:
@@ -118,8 +142,9 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                         stats.record_failure(url, "too_large", update.message.chat_id, update.message.chat.title)
                         return
                     title = info.get("title", "")
+                    w, h = await _video_dimensions(filepath)
                     with open(filepath, "rb") as f:
-                        msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+                        msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True, width=w, height=h)
                     bot_messages.track_bot_message(msg.chat_id, msg.message_id)
                     if msg.video:
                         stats.remember_video(url, msg.video.file_id)
@@ -198,8 +223,9 @@ async def _download_and_send(update: Update, url: str, force: bool = False) -> N
                 stats.record_failure(url, "too_large", update.message.chat_id, update.message.chat.title)
                 return
             title = info.get("title", "") if not isinstance(info.get("entries"), list) else ""
+            w, h = await _video_dimensions(filepath)
             with open(filepath, "rb") as f:
-                msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True)
+                msg = await update.message.reply_video(video=f, caption=title, supports_streaming=True, width=w, height=h)
             bot_messages.track_bot_message(msg.chat_id, msg.message_id)
             if msg.video:
                 stats.remember_video(url, msg.video.file_id)
