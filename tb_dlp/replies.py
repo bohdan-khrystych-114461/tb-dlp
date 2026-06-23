@@ -60,7 +60,7 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
     else:
-        if comebacks.COMEBACK_EXAMPLES:
+        if ai.ACTIVE_PERSONALITY == "aggressive" and comebacks.COMEBACK_EXAMPLES:
             sample = random.sample(comebacks.COMEBACK_EXAMPLES, min(comebacks.COMEBACK_EXAMPLES_PER_REPLY, len(comebacks.COMEBACK_EXAMPLES)))
             examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
             examples_note = (
@@ -71,7 +71,7 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
             )
             chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
 
-        if comebacks.COMEBACK_PHRASES:
+        if ai.ACTIVE_PERSONALITY == "aggressive" and comebacks.COMEBACK_PHRASES:
             phrase_sample = random.sample(comebacks.COMEBACK_PHRASES, min(comebacks.COMEBACK_PHRASES_PER_REPLY, len(comebacks.COMEBACK_PHRASES)))
             phrases_text = "\n".join(f"- {p}" for p in phrase_sample)
             phrases_note = (

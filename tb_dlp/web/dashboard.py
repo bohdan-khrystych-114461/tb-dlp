@@ -7,6 +7,8 @@ from aiohttp import web as aio_web
 from tb_dlp import ai, downloader, profiles, stats
 from tb_dlp.web.layout import auth, he, page
 
+_CHEVRON_SVG = "%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 20 20%27 fill=%27%236d28d9%27%3E%3Cpath fill-rule=%27evenodd%27 d=%27M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z%27/%3E%3C/svg%3E"
+
 AI_TRIGGER_COLORS = {
     "mention": "#6366f1",
     "reply": "#8b5cf6",
@@ -145,6 +147,23 @@ async def stats_page(request: aio_web.Request) -> aio_web.Response:
     else:
         ai_btn = f"<button class='inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 bg-gray-50 hover:bg-gray-100'><span class='w-1.5 h-1.5 rounded-full bg-gray-400'></span>AI: {ai_status} (turn {ai_action})</button>"
 
+    current_mode = ai.get_personality_mode()
+    current_mode_info = ai.PERSONALITY_MODES[current_mode]
+    personality_options = "".join(
+        f"<option value='{mode}' {'selected' if mode == current_mode else ''}>"
+        f"{info['emoji']} {he(info['label'])}</option>"
+        for mode, info in ai.PERSONALITY_MODES.items()
+    )
+    personality_selector = (
+        f"<form method='post' action='/admin/personality' class='inline-flex items-center gap-1.5'>"
+        f"<select name='mode' onchange='this.form.submit()' "
+        f"class='px-3 py-1.5 text-sm font-medium rounded-lg border border-violet-200 "
+        f"text-violet-700 bg-violet-50 hover:bg-violet-100 cursor-pointer appearance-none "
+        f"pr-8 bg-no-repeat bg-[length:16px] bg-[right_8px_center]' "
+        f"style=\"background-image: url('data:image/svg+xml,{_CHEVRON_SVG}')\">"
+        f"{personality_options}</select></form>"
+    )
+
     ai_by_chat = sorted(
         ai_stats.get("by_chat", {}).items(),
         key=lambda kv: -sum(kv[1].get(k, 0) for k in stats.AI_STAT_TRIGGERS),
@@ -228,6 +247,7 @@ new Chart(document.getElementById('aiChart'), {{
   <h1 class="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
   <div class="flex items-center gap-2">
     {_cookie_health()}
+    {personality_selector}
     <form method="post" action="/admin/ai-toggle">{ai_btn}</form>
   </div>
 </div>
@@ -274,4 +294,13 @@ async def ai_toggle(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
     ai.toggle_ai_enabled()
+    return aio_web.HTTPFound("/admin")
+
+
+async def personality_set(request: aio_web.Request) -> aio_web.Response:
+    if not auth(request):
+        return aio_web.HTTPFound("/login")
+    data = await request.post()
+    mode = str(data.get("mode", "aggressive"))
+    ai.set_personality_mode(mode)
     return aio_web.HTTPFound("/admin")
