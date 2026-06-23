@@ -202,37 +202,17 @@ PERSONALITY_MODES = {
 _personality_store = JSONStore("/cookies/personality_mode.json", default=lambda: "aggressive")
 ACTIVE_PERSONALITY: str = _personality_store.load()
 
-_bot = None
-
-
-def set_bot(bot) -> None:
-    global _bot
-    _bot = bot
-
-
 def get_personality_mode() -> str:
     return ACTIVE_PERSONALITY
 
 
-async def set_personality_mode(mode: str) -> str:
+def set_personality_mode(mode: str) -> str:
     global ACTIVE_PERSONALITY
     if mode not in PERSONALITY_MODES:
         mode = "aggressive"
     ACTIVE_PERSONALITY = mode
     _personality_store.save(mode)
-    await apply_bot_name()
     return mode
-
-
-async def apply_bot_name() -> None:
-    if _bot is None:
-        return
-    name = PERSONALITY_MODES[ACTIVE_PERSONALITY]["bot_name"]
-    try:
-        await _bot.set_my_name(name)
-        log.info("Bot name changed to %r", name)
-    except Exception:
-        log.exception("Failed to set bot name")
 
 
 def get_system_prompt() -> str:

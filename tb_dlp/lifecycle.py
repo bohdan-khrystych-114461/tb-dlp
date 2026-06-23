@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 
-from tb_dlp import ai, config
+from tb_dlp import config
 from tb_dlp.web import start_web_server
 
 
@@ -17,7 +17,5 @@ async def daily_update(_) -> None:
 
 
 async def on_startup(application) -> None:
-    ai.set_bot(application.bot)
-    await ai.apply_bot_name()
     asyncio.create_task(daily_update(application))
     await start_web_server()
