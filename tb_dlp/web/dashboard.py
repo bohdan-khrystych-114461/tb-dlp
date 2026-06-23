@@ -302,5 +302,5 @@ async def personality_set(request: aio_web.Request) -> aio_web.Response:
         return aio_web.HTTPFound("/login")
     data = await request.post()
     mode = str(data.get("mode", "aggressive"))
-    ai.set_personality_mode(mode)
+    await ai.set_personality_mode(mode)
     return aio_web.HTTPFound("/admin")
