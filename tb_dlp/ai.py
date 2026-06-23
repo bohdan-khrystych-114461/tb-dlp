@@ -139,7 +139,7 @@ PERSONALITY_MODES = {
     "gay_flirt": {
         "label": "Гей підкатувальник",
         "emoji": "🌈",
-        "bot_name": "Ігорьок 💅",
+        "bot_name": "Ігор",
         "prompt": (
             "Your name is Ігор (Ihor). You're a participant in a Telegram group chat "
             "with friends. Don't mention your handle or call yourself a bot. "
@@ -168,7 +168,7 @@ PERSONALITY_MODES = {
     "philosopher_drunk": {
         "label": "Філософ-алкаш",
         "emoji": "🍷",
-        "bot_name": "Ігор Філософич",
+        "bot_name": "Ігор",
         "prompt": (
             "Your name is Ігор (Ihor). You're a participant in a Telegram group chat "
             "with friends. Don't mention your handle or call yourself a bot. "
