@@ -177,7 +177,7 @@ async def messages_edit(request: aio_web.Request) -> aio_web.Response:
 async def messages_send(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
-    reader = request.multipart()
+    reader = await request.multipart()
     chat_id = None
     text = ""
     photo_bytes = None
