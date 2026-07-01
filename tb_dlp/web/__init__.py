@@ -28,6 +28,7 @@ async def start_web_server() -> None:
     web_app.router.add_post("/admin/cache/bulk-remove", cache_page.cache_bulk_remove)
     web_app.router.add_post("/admin/cache/clear", cache_page.cache_clear)
     web_app.router.add_get("/admin/messages", messages_page.messages_page)
+    web_app.router.add_post("/admin/messages/send", messages_page.messages_send)
     web_app.router.add_post("/admin/messages/delete", messages_page.messages_delete)
     web_app.router.add_post("/admin/messages/edit", messages_page.messages_edit)
     web_app.router.add_get("/admin/comebacks", comebacks_page.comebacks_page)

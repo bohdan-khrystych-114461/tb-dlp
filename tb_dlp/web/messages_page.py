@@ -4,7 +4,7 @@ from urllib.parse import quote as urlquote
 import httpx
 from aiohttp import web as aio_web
 
-from tb_dlp import bot_messages, config
+from tb_dlp import bot_messages, chats, config
 from tb_dlp.web.layout import auth, he, page
 
 TELEGRAM_API = f"https://api.telegram.org/bot{config.BOT_TOKEN}"
@@ -40,9 +40,36 @@ async def messages_page(request: aio_web.Request) -> aio_web.Response:
         alert += f"<div class='{_ALERT_OK}'>{he(msg)}</div>"
     if error:
         alert += f"<div class='{_ALERT_ERR}'>{he(error)}</div>"
+    chat_options = "".join(
+        f"<option value='{cid}'>{he(chats.chat_name(cid))}</option>"
+        for cid in sorted(chats.ALLOWED_CHAT_IDS)
+    )
     body = f"""
 <h1 class="text-2xl font-bold text-gray-900 tracking-tight mb-6">Messages</h1>
 {alert}
+<div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-5">
+  <div class="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
+    <svg class="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+    <span class="font-medium text-sm text-gray-700">Send a message</span>
+  </div>
+  <div class="p-5">
+    <form method="post" action="/admin/messages/send" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Chat</label>
+        <select name="chat_id" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">{chat_options}</select>
+      </div>
+      <div class="mb-3">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Text <span class="normal-case font-normal text-gray-400">(optional if image provided)</span></label>
+        <textarea name="text" rows="3" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-400" placeholder="Message text..."></textarea>
+      </div>
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Image <span class="normal-case font-normal text-gray-400">(optional)</span></label>
+        <input type="file" name="photo" accept="image/*" class="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-sm file:font-medium file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100">
+      </div>
+      <button class="bg-indigo-600 text-white px-3.5 py-1.5 text-sm font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Send</button>
+    </form>
+  </div>
+</div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
   <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
     <div class="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
@@ -117,3 +144,44 @@ async def messages_edit(request: aio_web.Request) -> aio_web.Response:
     except Exception as exc:
         return aio_web.HTTPFound(f"/admin/messages?error={urlquote(f'Edit failed: {exc}')}")
     return aio_web.HTTPFound(f"/admin/messages?msg={urlquote(f'Edited message {message_id}.')}")
+
+
+async def messages_send(request: aio_web.Request) -> aio_web.Response:
+    if not auth(request):
+        return aio_web.HTTPFound("/login")
+    reader = await request.multipart()
+    chat_id = None
+    text = ""
+    photo_bytes = None
+    photo_name = "photo.jpg"
+    async for field in reader:
+        if field.name == "chat_id":
+            chat_id = int(await field.read(decode=True))
+        elif field.name == "text":
+            text = (await field.read(decode=True)).strip()
+        elif field.name == "photo" and field.filename:
+            photo_bytes = await field.read()
+            photo_name = field.filename or "photo.jpg"
+    if not chat_id:
+        return aio_web.HTTPFound(f"/admin/messages?error={urlquote('No chat selected.')}")
+    if not text and not photo_bytes:
+        return aio_web.HTTPFound(f"/admin/messages?error={urlquote('Provide text or an image.')}")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            if photo_bytes:
+                resp = await client.post(
+                    f"{TELEGRAM_API}/sendPhoto",
+                    data={"chat_id": chat_id, "caption": text},
+                    files={"photo": (photo_name, photo_bytes)},
+                )
+            else:
+                resp = await client.post(
+                    f"{TELEGRAM_API}/sendMessage",
+                    json={"chat_id": chat_id, "text": text},
+                )
+        data = resp.json()
+        if not data.get("ok"):
+            raise RuntimeError(data.get("description", "unknown error"))
+    except Exception as exc:
+        return aio_web.HTTPFound(f"/admin/messages?error={urlquote(f'Send failed: {exc}')}")
+    return aio_web.HTTPFound(f"/admin/messages?msg={urlquote('Message sent.')}")
