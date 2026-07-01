@@ -177,18 +177,19 @@ async def messages_edit(request: aio_web.Request) -> aio_web.Response:
 async def messages_send(request: aio_web.Request) -> aio_web.Response:
     if not auth(request):
         return aio_web.HTTPFound("/login")
-    reader = await request.multipart()
+    reader = request.multipart()
     chat_id = None
     text = ""
     photo_bytes = None
     photo_name = "photo.jpg"
     async for field in reader:
+        data = await field.read()
         if field.name == "chat_id":
-            chat_id = int(await field.read(decode=True))
+            chat_id = int(data.decode())
         elif field.name == "text":
-            text = (await field.read()).decode("utf-8").strip()
+            text = data.decode("utf-8").strip()
         elif field.name == "photo" and field.filename:
-            photo_bytes = await field.read()
+            photo_bytes = bytes(data)
             photo_name = field.filename or "photo.jpg"
     if not chat_id:
         return aio_web.HTTPFound(f"/admin/messages?error={urlquote('No chat selected.')}")
@@ -207,9 +208,9 @@ async def messages_send(request: aio_web.Request) -> aio_web.Response:
                     f"{TELEGRAM_API}/sendMessage",
                     json={"chat_id": chat_id, "text": text},
                 )
-        data = resp.json()
-        if not data.get("ok"):
-            raise RuntimeError(data.get("description", "unknown error"))
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(result.get("description", "unknown error"))
     except Exception as exc:
         return aio_web.HTTPFound(f"/admin/messages?error={urlquote(f'Send failed: {exc}')}")
     return aio_web.HTTPFound(f"/admin/messages?msg={urlquote('Message sent.')}")
