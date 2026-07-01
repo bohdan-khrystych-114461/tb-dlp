@@ -63,11 +63,39 @@ async def messages_page(request: aio_web.Request) -> aio_web.Response:
         <textarea name="text" rows="3" class="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-gray-400" placeholder="Message text..."></textarea>
       </div>
       <div class="mb-4">
-        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Image <span class="normal-case font-normal text-gray-400">(optional)</span></label>
-        <input type="file" name="photo" accept="image/*" class="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-sm file:font-medium file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100">
+        <label class="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Image <span class="normal-case font-normal text-gray-400">(optional — upload or paste)</span></label>
+        <div id="paste-zone" class="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center text-sm text-gray-400 cursor-pointer hover:border-indigo-300 hover:bg-indigo-50 transition-colors" onclick="document.getElementById('photo-input').click()">
+          <div id="paste-hint">Click to choose or paste an image (Ctrl+V)</div>
+          <img id="paste-preview" class="hidden mx-auto max-h-40 rounded mt-2">
+        </div>
+        <input id="photo-input" type="file" name="photo" accept="image/*" class="hidden" onchange="showPreview(this.files[0])">
       </div>
       <button class="bg-indigo-600 text-white px-3.5 py-1.5 text-sm font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Send</button>
     </form>
+    <script>
+    function showPreview(file) {{
+      if (!file) return;
+      var img = document.getElementById('paste-preview');
+      var hint = document.getElementById('paste-hint');
+      img.src = URL.createObjectURL(file);
+      img.classList.remove('hidden');
+      hint.textContent = file.name || 'Pasted image';
+    }}
+    document.addEventListener('paste', function(e) {{
+      var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (var i = 0; i < items.length; i++) {{
+        if (items[i].type.indexOf('image') !== -1) {{
+          var blob = items[i].getAsFile();
+          var dt = new DataTransfer();
+          dt.items.add(new File([blob], 'pasted.png', {{type: blob.type}}));
+          var input = document.getElementById('photo-input');
+          input.files = dt.files;
+          showPreview(dt.files[0]);
+          break;
+        }}
+      }}
+    }});
+    </script>
   </div>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
