@@ -186,7 +186,7 @@ async def messages_send(request: aio_web.Request) -> aio_web.Response:
         if field.name == "chat_id":
             chat_id = int(await field.read(decode=True))
         elif field.name == "text":
-            text = (await field.read(decode=True)).strip()
+            text = (await field.read()).decode("utf-8").strip()
         elif field.name == "photo" and field.filename:
             photo_bytes = await field.read()
             photo_name = field.filename or "photo.jpg"
