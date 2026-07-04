@@ -284,7 +284,7 @@ async def ask_ai(
     image_mime: str = "image/jpeg",
     enable_search: bool = False,
 ) -> str:
-    system_parts = [get_system_prompt(), f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC)."]
+    system_parts = [get_system_prompt(), f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC).", "BANNED openers — never start a reply with these words or phrases: 'слышь', 'слышишь', 'слушай', 'ну слушай'. Just say what you want to say without these filler openers."]
     if user_note:
         system_parts.append(user_note)
     if chat_context:
