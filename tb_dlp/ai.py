@@ -284,7 +284,7 @@ async def ask_ai(
     image_mime: str = "image/jpeg",
     enable_search: bool = False,
 ) -> str:
-    system_parts = [get_system_prompt(), f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC).", "BANNED openers — never start a reply with these words or phrases: 'слышь', 'слышишь', 'слушай', 'ну слушай'. Just say what you want to say without these filler openers."]
+    system_parts = [get_system_prompt(), f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d} (UTC).", "HARD BAN — never use these words anywhere in your reply, even mid-sentence, even if the other person used them: 'слышь', 'слышишь'. Do not mirror them back. Just skip them entirely and say what you want to say."]
     if user_note:
         system_parts.append(user_note)
     if chat_context:
