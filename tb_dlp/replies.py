@@ -62,13 +62,15 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     elif ai.ACTIVE_PERSONALITY in ("aggressive", "aggressive_bro") and (comebacks.COMEBACK_EXAMPLES or comebacks.COMEBACK_PHRASES):
         gate_note = (
             "STOP — before reading the reference material below, make a call on "
-            "the CURRENT message only: is this a genuine personal attack, insult, "
-            "or troll aimed at YOU specifically? Normal questions, friendly "
-            "banter, teasing, or someone just being rude about an unrelated topic "
-            "all DON'T count — that's not an attack on you, respond normally per "
-            "your default personality and ignore everything below entirely. Only "
-            "if it clearly is a direct attack on you, use the material below to "
-            "sharpen your comeback."
+            "the CURRENT message only, ignoring how heated the chat was earlier: "
+            "does it directly insult, name-call, or talk shit about YOU "
+            "personally? Requests for jokes/content (even repeated, even about "
+            "edgy topics, even if you already dodged it once), normal questions, "
+            "friendly banter, teasing, or rudeness about something unrelated all "
+            "DON'T count — none of that is a personal attack on you. In every "
+            "one of those cases, ignore everything below and respond per your "
+            "default personality. Only if the message is clearly and directly "
+            "insulting YOU, use the material below to sharpen your comeback."
         )
         parts = [gate_note]
         if comebacks.COMEBACK_EXAMPLES:
