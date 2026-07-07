@@ -59,29 +59,32 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
-    else:
-        if ai.ACTIVE_PERSONALITY == "aggressive" and comebacks.COMEBACK_EXAMPLES:
+    elif ai.ACTIVE_PERSONALITY == "aggressive" and (comebacks.COMEBACK_EXAMPLES or comebacks.COMEBACK_PHRASES):
+        gate_note = (
+            "STOP — before reading the reference material below, make a call on "
+            "the CURRENT message only: is this a genuine personal attack, insult, "
+            "or troll aimed at YOU specifically? Normal questions, friendly "
+            "banter, teasing, or someone just being rude about an unrelated topic "
+            "all DON'T count — that's not an attack on you, respond normally per "
+            "your default personality and ignore everything below entirely. Only "
+            "if it clearly is a direct attack on you, use the material below to "
+            "sharpen your comeback."
+        )
+        parts = [gate_note]
+        if comebacks.COMEBACK_EXAMPLES:
             sample = random.sample(comebacks.COMEBACK_EXAMPLES, min(comebacks.COMEBACK_EXAMPLES_PER_REPLY, len(comebacks.COMEBACK_EXAMPLES)))
             examples_text = "\n".join(f'- They said: "{ex["trigger"]}" → You replied: "{ex["reply"]}"' for ex in sample)
-            examples_note = (
-                "Examples of how you've nailed it when clapping back at trolling/"
-                "insults before — match this style and sharpness ONLY if the "
-                "current message is similarly hostile toward you, otherwise "
-                "ignore these:\n" + examples_text
-            )
-            chat_context = (chat_context + "\n\n" + examples_note).strip() if chat_context else examples_note
-
-        if ai.ACTIVE_PERSONALITY == "aggressive" and comebacks.COMEBACK_PHRASES:
+            parts.append("Examples of how you've nailed it when clapping back before:\n" + examples_text)
+        if comebacks.COMEBACK_PHRASES:
             phrase_sample = random.sample(comebacks.COMEBACK_PHRASES, min(comebacks.COMEBACK_PHRASES_PER_REPLY, len(comebacks.COMEBACK_PHRASES)))
             phrases_text = "\n".join(f"- {p}" for p in phrase_sample)
-            phrases_note = (
-                "Some words/expressions from your usual vocabulary you can pull "
-                "from when clapping back — use one ONLY if it actually fits what "
-                "you're saying and the message is hostile toward you, adapt it "
-                "to the context, don't force it in or repeat the same one every "
-                "time:\n" + phrases_text
+            parts.append(
+                "Some words/expressions from your usual vocabulary — use one "
+                "only if it actually fits, adapt it to the context, don't force "
+                "it in or repeat the same one every time:\n" + phrases_text
             )
-            chat_context = (chat_context + "\n\n" + phrases_note).strip() if chat_context else phrases_note
+        combined_note = "\n\n".join(parts)
+        chat_context = (chat_context + "\n\n" + combined_note).strip() if chat_context else combined_note
 
     lang = ai.detect_reply_language(prompt)
     if lang == "ru":
