@@ -59,7 +59,7 @@ async def reply_with_ai(message, prompt: str, user, *, uninvited: bool = False, 
     if uninvited:
         note = "You're chiming in here on your own — nobody @mentioned you. Keep it brief and natural, like a group member jumping in. Match the tone of the conversation — don't be rude or aggressive unless the chat was already going that way."
         chat_context = (chat_context + "\n\n" + note).strip() if chat_context else note
-    elif ai.ACTIVE_PERSONALITY == "aggressive" and (comebacks.COMEBACK_EXAMPLES or comebacks.COMEBACK_PHRASES):
+    elif ai.ACTIVE_PERSONALITY in ("aggressive", "aggressive_bro") and (comebacks.COMEBACK_EXAMPLES or comebacks.COMEBACK_PHRASES):
         gate_note = (
             "STOP — before reading the reference material below, make a call on "
             "the CURRENT message only: is this a genuine personal attack, insult, "
