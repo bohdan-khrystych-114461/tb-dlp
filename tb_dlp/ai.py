@@ -416,7 +416,8 @@ async def ask_ai(
                 log.warning("Timeout from %s, trying next model", model)
                 last_error = exc
                 continue
-            if resp.status_code == 429 or resp.status_code >= 500:
+            if resp.status_code == 429 or resp.status_code == 400 or resp.status_code >= 500:
+                log.warning("%s from %s, trying next model: %s", resp.status_code, model, resp.text[:200])
                 last_error = httpx.HTTPStatusError(
                     f"{resp.status_code} from {model}", request=resp.request, response=resp
                 )
